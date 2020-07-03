@@ -13,7 +13,7 @@ wait_for_node() {
     while true
     do
         sleep 5
-        state=$(curl -X GET https://api.grid5000.fr/3.0/sites/"$1"/jobs/"$2" | jq '.state')
+        state=$(curl -s -X GET https://api.grid5000.fr/3.0/sites/"$1"/jobs/"$2" | jq '.state')
         echo "Current state is $state"
         if [ "$state" == \"running\" ]
         then
@@ -27,7 +27,7 @@ wait_for_node() {
 get_node_name() {
     # 1 - Location string
     # 2 - Job id
-    name=$(curl https://api.grid5000.fr/3.0/sites/"$1"/jobs/"$2" | jq '.assigned_nodes[0]')
+    name=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs/"$2" | jq '.assigned_nodes[0]')
     echo "${name//\"/}"
 }
 
@@ -60,20 +60,17 @@ ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAEAQCxIhVVb4r+7/OGpEkWCfSh8jSqjPQsb4h2Jorxw+ti
 
 wait_for_environment() {
     # 1 - machine address/name
+    echo "Waiting for environment to be deployed"
+    echo "This requires rebooting an bootstrapping the machines, this may take a while..."
     while true
     do
         sleep 10
-        if ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o BatchMode=yes root@"$1" 'if [[ $(uname -a) =~ "Ubuntu" ]]; then exit 0; else exit 1; fi'
+        if ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o BatchMode=yes root@"$1" 'if [[ $(uname -a) =~ "Ubuntu" ]]; then exit 0; else exit 1; fi' > /dev/null 2>/dev/null
         then
-            echo "Connecting possible, checking..."
-            if setup_machine "$1"
-            then
-                break
-            else
-                echo "Machine not ready yet, bootstrapping..."
-            fi
+            echo "Connecting possible, setting up..."
+            setup_machine "$1"
+            break
         fi
-        echo "Waiting for environment to be deployed"
     done
     return 0
 }
@@ -88,23 +85,27 @@ reserve_job() {
   ########################## NANCY
 
   # the $OAR_NODEFILE has to be evaluated on the machine itself, so disregard the shellcheck warning here
-  node_result=$(curl https://api.grid5000.fr/3.0/sites/"$1"/jobs \
+  node_result=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
                   -X POST -H 'Content-Type: application/json' \
                   -d "{\"resources\":\"{eth_count>=2}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ubuntu1804-x64-min -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
 
-  vlan_job_id=$(curl https://api.grid5000.fr/3.0/sites/"$1"/jobs \
+  vlan_job_id=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
                   -X POST -H 'Content-Type: application/json' \
                   -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$3\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$3\"}" | jq '.uid')
 
   node_id=$(echo "$node_result" | jq '.uid')
+  echo "Reserved node in $1 (Job ID $node_id)"
+  echo "Reserved VLAN in $1 (Job ID $vlan_job_id)"
   wait_for_node "$1" "$node_id"
   wait_for_node "$1" "$vlan_job_id"
+  echo ""
   node_name=$(get_node_name "$1" "$node_id")
+  echo "Got machine $node_name in $1 (Job ID $node_id)"
 
   echo "Adding interface to $node_name"
   sleep 10
   add_req="{\"nodes\":[\"$(echo "$node_name" | cut -d '.' -f 1)-eth1.$1.grid5000.fr\"]}"
-  curl -d "$add_req" -X POST https://api.grid5000.fr/stable/sites/nancy/vlans/14 > /dev/null
+  curl -s -d "$add_req" -X POST https://api.grid5000.fr/stable/sites/nancy/vlans/14 > /dev/null
 
   echo "Setting up machine $node_name"
   wait_for_environment "$node_name"
