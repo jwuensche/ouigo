@@ -9,13 +9,15 @@ Have a check on the availability on the referenced clusters and try again."
 wait_for_node() {
     # 1 - Location string
     # 2 - Job id
-    echo "Wating for node in $1 to become ready.."
-    while (true)
+    echo "Waiting for node in $1 to become ready.."
+    while true
     do
         sleep 5
         state=$(curl -X GET https://api.grid5000.fr/3.0/sites/"$1"/jobs/"$2" | jq '.state')
+        echo "$state"
         if [ "$state" == \"running\" ]
         then
+            echo "me breaky breaky now"
             break
         fi
         echo "Node was not ready, waiting more.."
@@ -30,8 +32,23 @@ get_node_name() {
     echo "${name//\"/}"
 }
 
+wait_for_environment() {
+    # 1 - machine address/name
+    while true
+    do
+        sleep 10
+        if ssh -o PasswordAuthentication=no -o BatchMode=yes root@"$1" "echo 'ready'"
+        then
+            break
+        fi
+        echo "Waiting for environment to be deployed"
+    done
+    return 0
+}
+
 setup_machine() {
-    ssh root@"$2" "
+    # 1 - machine address/name
+    ssh root@"$1" "
     useradd scionlab
 usermod -aG sudo scionlab
 echo 'scionlab ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
@@ -56,85 +73,44 @@ chsh -s /bin/bash scionlab
 "
 }
 
-# Get nodes and check availability there is a dummy `sleep infinity` command to keep the job alive
-########################## NANCY
+reserve_job() {
+# 1 - job location
+# 2 - cluster name
+# 3 - first vlan id
+# 4 - second vlan id
 
-# the $OAR_NODEFILE has to be evaluated on the machine itself, so disregard the shellcheck warning here
-nancy_node_res=$(curl https://api.grid5000.fr/3.0/sites/nancy/jobs \
-                -X POST -H 'Content-Type: application/json' \
-                -d '{"resources":"{cluster='\''gros'\''}/nodes=1,walltime=12","command":"kadeploy3 -k -e ubuntu1804-x64-min -f $OAR_NODEFILE; sleep infinity", "project":"SCION", "name":"machine", "types":["deploy"]}')
+  # Get nodes and check availability there is a dummy `sleep infinity` command to keep the job alive
+  ########################## NANCY
 
-nancy_vlan_id=$(curl https://api.grid5000.fr/3.0/sites/nancy/jobs \
-                -X POST -H 'Content-Type: application/json' \
-                -d '{"resources":"{type='\''kavlan-global'\''}/vlan=1,walltime=12","command":"kavlan -d; curl -d '\''{\"id\":\"14\", \"sdx_vlan_id\":\"1391\"}'\'' -H \"Content-Type: application/json\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity", "project": "SCION", "name": "vlan"}' | jq '.uid')
+  # the $OAR_NODEFILE has to be evaluated on the machine itself, so disregard the shellcheck warning here
+  node_result=$(curl https://api.grid5000.fr/3.0/sites/"$1"/jobs \
+                  -X POST -H 'Content-Type: application/json' \
+                  -d "{\"resources\":\"{cluster='$2'}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ubuntu1804-x64-min -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
 
-nancy_node_id=$(echo "$nancy_node_res" | jq '.uid')
-wait_for_node nancy "$nancy_node_id"
-wait_for_node nancy "$nancy_vlan_id"
-nancy_node_name=$(get_node_name nancy "$nancy_node_id")
+  vlan_job_id=$(curl https://api.grid5000.fr/3.0/sites/"$1"/jobs \
+                  -X POST -H 'Content-Type: application/json' \
+                  -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$3\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$3\"}" | jq '.uid')
 
-# Add interface
-echo "Adding interface to $nancy_node_name"
-sleep 10
-add_req="{\"nodes\":[\"$(echo ${nancy_node_name} | cut -d '.' -f 1)-eth1.nancy.grid5000.fr\"]}"
-curl -d $add_req -X POST https://api.grid5000.fr/stable/sites/nancy/vlans/14 > /dev/null
+  node_id=$(echo "$node_result" | jq '.uid')
+  wait_for_node "$1" "$node_id"
+  wait_for_node "$1" "$vlan_job_id"
+  node_name=$(get_node_name "$1" "$node_id")
+  
+  echo "Adding interface to $node_name"
+  sleep 10
+  add_req="{\"nodes\":[\"$(echo "$node_name" | cut -d '.' -f 1)-eth1.$1.grid5000.fr\"]}"
+  curl -d "$add_req" -X POST https://api.grid5000.fr/stable/sites/nancy/vlans/14 > /dev/null
 
-#setup
-echo "Setting up machine $nancy_node_name"
-sleep 240
-setup_machine nancy "$nancy_node_name"
-ssh root@"$nancy_node_name" "
-    ip addr add 10.1.9.7 dev eno2
-    ip link set dev eno2 up
-    sleep 1
-    ip route add 10.1.9.1 dev eno2
-"
+  echo "Setting up machine $node_name"
+  while true
+  do
+    wait_for_environment "$node_name"
+    if setup_machine "$node_name"
+    then
+      break
+    fi
+  done
+}
 
-########################## LILLE
-
-# the $OAR_NODEFILE has to be evaluated on the machine itself, so disregard the shellcheck warning here
-lille_node_res=$(curl https://api.grid5000.fr/3.0/sites/lille/jobs \
-                      -X POST -H 'Content-Type: application/json' \
-                      -d '{"resources":"/nodes=1,walltime=12","command":"kadeploy3 -k -e ubuntu1804-x64-min -f $OAR_NODEFILE; sleep infinity", "project":"SCION", "name":"machine", "types":["deploy"]}')
-
-lille_vlan_id=$(curl https://api.grid5000.fr/3.0/sites/lille/jobs \
-                     -X POST -H 'Content-Type: application/json' \
-                     -d '{"resources":"{type='\''kavlan-global'\''}/vlan=1,walltime=12","command":"kavlan -d; curl -d '\''{\"id\":\"12\", \"sdx_vlan_id\":\"1390\"}'\'' -H \"Content-Type: application/json\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity", "project":"SCION", "name":"vlan"}' | jq '.uid')
-lille_node_id=$(echo "$lille_node_res" | jq '.uid')
-wait_for_node lille "$lille_node_id"
-wait_for_node lille "$lille_vlan_id"
-lille_node_name=$(get_node_name lille "$lille_node_id")
-
-# Add interface
-echo "Adding interface to $lille_node_name"
-sleep 10
-add_req="{\"nodes\":[\"$(echo "$lille_node_name" | cut -d '.' -f 1)-eth1.lille.grid5000.fr\"]}"
-curl -d "$add_req" -X POST https://api.grid5000.fr/stable/sites/lille/vlans/12 > /dev/null
-
-#setup
-echo "Setting up machine $lille_node_name"
-sleep 240
-setup_machine lille "$lille_node_name"
-
-ssh root@"$lille_node_name" "
-    ip addr add 10.1.8.7 dev eno2
-    ip link set dev eno2 up
-    sleep 1
-    ip route add 10.1.8.1 dev eno2
-"
-
-
-echo "Setup machines in Lille and Nancy:
-lille job id: $lille_node_id
-lille vlan job id: $lille_vlan_id
-nancy job id: $nancy_node_id
-nancy vlan job id: $nancy_vlan_id
-"
-
-
-# Manual Approach and debug on site
-# kadeploy3 -e ubuntu1804-x64-min -f "$OAR_NODEFILE" -k
-# oarsub -t deploy -l "{cluster='chetemi'}/nodes=1,walltime=36" "sleep infinity"
-# oarsub -t deploy -l "{type='kavlan-global'}/vlan=1,walltime=168" "sleep infinity"
-# curl -d '{"id":"12", "sdx_vlan_id":"1390"}' -H "Content-Type: application/json" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings
-# curl -d '{"nodes":["chetemi-2-eth1.lille.grid5000.fr"]}' -X POST https://api.grid5000.fr/stable/sites/lille/vlans/nodes
+# reserve_job nancy gros 1293 1337
+reserve_job lille chiclet 1294 0
