@@ -1,5 +1,17 @@
 #!/bin/bash
 
+CONFIG_DIR=$HOME/.cache/g5k
+
+loginfo () {
+    # 1 - text
+    echo -e "\e[32m[INFO] $1\e[0m"
+}
+
+logerror () {
+    # 1 - text
+    echo -e "\e[31m[ERROR: $(date +"%c")] $1\e[0m"
+}
+
 unavailable () {
     echo "The given nodes could not be allocated.
 Have a check on the availability on the referenced clusters and try again."
@@ -9,17 +21,17 @@ Have a check on the availability on the referenced clusters and try again."
 wait_for_node() {
     # 1 - Location string
     # 2 - Job id
-    echo "Waiting for node in $1 to become ready.."
+    loginfo "Waiting for node in $1 to become ready.."
     while true
     do
         sleep 5
         state=$(curl -s -X GET https://api.grid5000.fr/3.0/sites/"$1"/jobs/"$2" | jq '.state')
-        echo "Current state is $state"
+        loginfo "Current state is $state"
         if [ "$state" == \"running\" ]
         then
             break
         fi
-        echo "Node was not ready, waiting more.."
+        loginfo "Node was not ready, waiting more.."
     done
     return 0
 }
@@ -55,19 +67,19 @@ ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAEAQDaGpk/mUd0aDPYvLWbKvg8aDNkWbDw+xbuAjkHheXU
 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAAEAQCxIhVVb4r+7/OGpEkWCfSh8jSqjPQsb4h2Jorxw+tikaxPEk4tawjcVzn29aKqHZswMQ/Zhc0F7uHVAiv4JXWbVIqG3fhe1r1ZHWGmAbftF4aMDxUVMj0J4xyO/TPHJbEChqAhx6LZHxRjQi2wGMGWbYcaINEN6IExc5C+SBqs8DJSBeF0TTkGhRFkgAlp7kPSVlyGkys/uhGPzniTpjk3ROjHqlCnDPCqWqxXqFbWAgZYAt7MvxiED/IoVRZqeFuEWPni0rhB40JuIkqLumbrUDVnbIP7yBVCHpJWvW03we4dUGxzkcQAdAVXJY1Icn9k7+IK3d/fSIh4T70J3VsHXwuAMLG5tHiIqUnoxAjxy30Wj5HzvaQnP9TkP627HdUbD6EXyJrwwxzi6MdQR14IRQfauzCBraCArm22BKeaNh3bjAv4URCm7I2GlJnF0oofufjJ9AbGq/6xjnDhCJIdgaYWNjbPj2GZRQNK18xzxCPvpHZDg9k37Jpgp+gUG0bbA7AayFapMFE1v0OoqvwHPamDUavKkP49Kfog1yeW5NzWy9wrZyP+ZVYRuKqqK548SWIw1rYCv8OETJWTtmD6zgmFeCNXIqE+PYxd9lXpQHKSfBCvwUYhLjXL3zm8J3UGGXsZorUDjChTfXILSeMOoldahej7dGNrU9aqstixMKVO3zIYjCllF7yO/0FqmoHqpCX1dp9ExIqsdlQUoqBszR2diOyfJV1lijTUbGPI8qcQKCSjaE4FpCFrRekNvkZlmqvQGY1wFe+kpXKvkbxFWK2AdxAv0i3f/HaytjSbx9riaG6usp2G/xgVkJTHFkzf4qGzVN030O0kvvz5Zy8C8depsib7x8KqTFGEMTPtPALs0JhFV6jK/U7sT6KK8xqwhijrcX/F4xTXExIoGjwR2RYCwiNO8qxT6aoFAHk1mYBRizTIrTJRfni2YKvIU00MaVyVdOGUuRws1CZNQzJaaM4IMOxQY+JPKy1BqSz5fiZSc1eedo6hXrW7G2cFIEbVT39ospum9nlUEWF+g12yxhXiMK3NmxU47d3jpI55919o9fQeV52houqJBQfWxeZOnD89VluMK9T7oUjvoNLDTKpCQuovTlnw0ZEWGsjVDEffarf8DCL1RhhTXsy8k83pxHVPsKT5J7K4sb4BWPef18OtLq+qvssEAJa5wTALlYKTrpY8EswkTSwGp4sNMQ35ZcS7shQwKeL+XqkqsS1+s3+zt7fAcfacwzDI6sCCiJiKkIwkyLbpDXJYy1sdkQEt3JTPbdNrRcshFfgaR1kkYvFJydvPQK0l3/kNa2KGdfpmmEL1uBEV/1wnwQRpYGZpyfert08SdP9VTVuPwx+B jwuensch@byzantium' > /home/scionlab/.ssh/authorized_keys
     chown -R scionlab /home/scionlab
     chsh -s /bin/bash scionlab
-"
+" > /dev/null 2> /dev/null
 }
 
 wait_for_environment() {
     # 1 - machine address/name
-    echo "Waiting for environment to be deployed"
-    echo "This requires rebooting an bootstrapping the machines, this may take a while..."
+    loginfo "Waiting for environment to be deployed"
+    loginfo "This requires rebooting and bootstrapping the machines, this may take a while..."
     while true
     do
         sleep 10
         if ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o BatchMode=yes root@"$1" 'if [[ $(uname -a) =~ "Ubuntu" ]]; then exit 0; else exit 1; fi' > /dev/null 2>/dev/null
         then
-            echo "Connecting possible, setting up..."
+            loginfo "Connecting possible, setting up..."
             setup_machine "$1"
             break
         fi
@@ -82,34 +94,31 @@ reserve_job() {
 # 4 - second vlan id
 
   # Get nodes and check availability there is a dummy `sleep infinity` command to keep the job alive
-  ########################## NANCY
-
   # the $OAR_NODEFILE has to be evaluated on the machine itself, so disregard the shellcheck warning here
   node_result=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
                   -X POST -H 'Content-Type: application/json' \
                   -d "{\"resources\":\"{eth_count>=2}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ubuntu1804-x64-min -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
 
-  vlan_job_id=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
-                  -X POST -H 'Content-Type: application/json' \
-                  -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$3\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$3\"}" | jq '.uid')
-
   node_id=$(echo "$node_result" | jq '.uid')
-  echo "Reserved node in $1 (Job ID $node_id)"
-  echo "Reserved VLAN in $1 (Job ID $vlan_job_id)"
+  loginfo "Reserved node in $1 (Job ID $node_id)"
   wait_for_node "$1" "$node_id"
+  node_name=$(get_node_name "$1" "$node_id")
+  loginfo "Got machine $node_name in $1 (Job ID $node_id)"
+
+  vlan_job_id=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
+                     -X POST -H 'Content-Type: application/json' \
+                     -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; echo \\\$(kavlan -V) > $CONFIG_DIR/vlan_\\\$OAR_JOBID; add_req=\\\"{\\\\\\\"nodes\\\\\\\":[\\\\\\\"$(echo "$node_name" | cut -d '.' -f 1)-eth1.$1.grid5000.fr\\\\\\\"]}\\\"; curl -d \\\$add_req -X POST https://api.grid5000.fr/stable/sites/$1/vlans/\\\$(kavlan -V); curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$3\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$3\"}" | jq '.uid')
+
+  loginfo "Reserved VLAN in $1 (Job ID $vlan_job_id)"
   wait_for_node "$1" "$vlan_job_id"
   echo ""
-  node_name=$(get_node_name "$1" "$node_id")
-  echo "Got machine $node_name in $1 (Job ID $node_id)"
 
-  echo "Adding interface to $node_name"
-  sleep 10
-  add_req="{\"nodes\":[\"$(echo "$node_name" | cut -d '.' -f 1)-eth1.$1.grid5000.fr\"]}"
-  curl -s -d "$add_req" -X POST https://api.grid5000.fr/stable/sites/nancy/vlans/14 > /dev/null
-
-  echo "Setting up machine $node_name"
+  loginfo "Setting up machine $node_name"
   wait_for_environment "$node_name"
+  echo "$node_name" > "$CONFIG_DIR/node_$node_id"
 }
+
+mkdir -p "$CONFIG_DIR"
 
 # reserve_job nancy gros 1293 1337
 reserve_job lille chiclet 1294 0
