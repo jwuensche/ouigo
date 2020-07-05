@@ -107,7 +107,7 @@ reserve_job() {
 
   vlan_job_id=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
                      -X POST -H 'Content-Type: application/json' \
-                     -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; echo \\\$(kavlan -V) > $CONFIG_DIR/vlan_\\\$OAR_JOBID; add_req=\\\"{\\\\\\\"nodes\\\\\\\":[\\\\\\\"$(echo "$node_name" | cut -d '.' -f 1)-eth1.$1.grid5000.fr\\\\\\\"]}\\\"; curl -d \\\$add_req -X POST https://api.grid5000.fr/stable/sites/$1/vlans/\\\$(kavlan -V); curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$3\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$3\"}" | jq '.uid')
+                     -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; echo \\\$(kavlan -V) > $CONFIG_DIR/vlan_$1_\\\$OAR_JOBID; add_req=\\\"{\\\\\\\"nodes\\\\\\\":[\\\\\\\"$(echo "$node_name" | cut -d '.' -f 1)-eth1.$1.grid5000.fr\\\\\\\"]}\\\"; curl -d \\\$add_req -X POST https://api.grid5000.fr/stable/sites/$1/vlans/\\\$(kavlan -V); curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$3\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$3\"}" | jq '.uid')
 
   loginfo "Reserved VLAN in $1 (Job ID $vlan_job_id)"
   wait_for_node "$1" "$vlan_job_id"
@@ -115,10 +115,10 @@ reserve_job() {
 
   loginfo "Setting up machine $node_name"
   wait_for_environment "$node_name"
-  echo "$node_name" > "$CONFIG_DIR/node_$node_id"
+  echo "$node_name" > "$CONFIG_DIR/node_$1_$node_id"
 }
 
 mkdir -p "$CONFIG_DIR"
 
-# reserve_job nancy gros 1293 1337
+reserve_job nancy gros 1293 1337
 reserve_job lille chiclet 1294 0
