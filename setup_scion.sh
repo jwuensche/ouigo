@@ -2,6 +2,15 @@
 
 CONFIG_DIR=$HOME/.cache/g5k
 
+help() {
+    echo -e "ouigo - distributing jobs on a budget
+
+Available subcommands:
+  setup - runs the initial setup of all jobs on sites
+  help - shows this message
+"
+}
+
 loginfo () {
     # 1 - text
     echo -e "\e[32m[INFO] $1\e[0m"
@@ -92,12 +101,13 @@ reserve_job() {
 # 2 - cluster name
 # 3 - first vlan id
 # 4 - second vlan id
+    # 5 - amount of ethernet interfaces 
 
   # Get nodes and check availability there is a dummy `sleep infinity` command to keep the job alive
   # the $OAR_NODEFILE has to be evaluated on the machine itself, so disregard the shellcheck warning here
   node_result=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
                   -X POST -H 'Content-Type: application/json' \
-                  -d "{\"resources\":\"{eth_count>=2}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ubuntu1804-x64-min -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
+                  -d "{\"resources\":\"{eth_count>=$5}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ubuntu1804-x64-min -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
 
   node_id=$(echo "$node_result" | jq '.uid')
   loginfo "Reserved node in $1 (Job ID $node_id)"
@@ -105,25 +115,127 @@ reserve_job() {
   node_name=$(get_node_name "$1" "$node_id")
   loginfo "Got machine $node_name in $1 (Job ID $node_id)"
 
-  vlan_job_id=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
-                     -X POST -H 'Content-Type: application/json' \
-                     -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; add_req=\\\"{\\\\\\\"nodes\\\\\\\":[\\\\\\\"$(echo "$node_name" | cut -d '.' -f 1)-eth1.$1.grid5000.fr\\\\\\\"]}\\\"; curl -d \\\$add_req -X POST https://api.grid5000.fr/stable/sites/$1/vlans/\\\$(kavlan -V); curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$3\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$3\"}" | jq '.uid')
-
-  loginfo "Reserved VLAN in $1 (Job ID $vlan_job_id)"
-  wait_for_node "$1" "$vlan_job_id"
-
-  vlan_id=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$1"/internal/oarapi/jobs/"$vlan_job_id"/resources.json | jq '.items[0].vlan' | xargs)
-
-  echo "$vlan_id" > "$CONFIG_DIR/vlan_$1_$vlan_job_id"
-
-  echo ""
+  loginfo "Setting up vlan $3 for machine $node_name"
+  vlan_manager "$3"
+  loginfo "Setting up vlan $4 for machines"
+  vlan_manager "$4"
 
   loginfo "Setting up machine $node_name"
   wait_for_environment "$node_name"
   echo "$node_name" > "$CONFIG_DIR/node_$1_$node_id"
 }
 
-mkdir -p "$CONFIG_DIR"
+vlan_manager() {
+    # 1 - vlan id external domain
 
-reserve_job nancy gros 1293 1337
-reserve_job lille chiclet 1294 0
+    locations="lille
+nancy
+luxembourg
+rennes
+nantes
+lyon
+grenoble
+sophia"
+
+    # for vlan in $(ls "$CONFIG_DIR" | grep "vlan")
+    # do
+    #     vlan_id=$(echo "$vlan" | cut -d '_' -f 2)
+    #     if [ "$vlan_id" -eq "$1" ]
+    #     then
+    #         kvl=$(cat "$CONFIG_DIR/$vlan")
+    #         loginfo "VLAN ID $1 is already assigned to kavlan $kvl. Skipping..."
+    #         return 1
+    #     fi
+    # done
+
+    for location in $(ls "$CONFIG_DIR" | grep vlan)
+    do
+        location=$(echo $location | cut -d '_' -f 3)
+        locations=$(echo "$locations" | grep -v "$location")
+    done
+
+    loginfo "New vlan location found, setting up..."
+
+    reserve_vlan $(echo "$locations" | head -n 1) "$1"
+}
+
+reserve_vlan() {
+    # 1 - job location
+    # 2 - external domain vlan id
+
+  vlan_job_id=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
+                     -X POST -H 'Content-Type: application/json' \
+                     -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$2\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$2\"}" | jq '.uid')
+
+  loginfo "Reserved VLAN in $1 (Job ID $vlan_job_id)"
+  wait_for_node "$1" "$vlan_job_id"
+
+  vlan_id=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$1"/internal/oarapi/jobs/"$vlan_job_id"/resources.json | jq '.items[0].vlan' | xargs)
+
+  echo "$vlan_id" > "$CONFIG_DIR/vlan_$2_$1_$vlan_job_id"
+}
+
+network_machine() {
+    # 1 - machine name
+    # 2 - interface name / none for eno0, eth1 for eno2
+    # 3 - external domain vlan id
+
+    loginfo "Connecting machine $1 to vlan $3..."
+
+    file=$(ls "$CONFIG_DIR" | grep "vlan_$3")
+    kavlan_id=$(cat "$CONFIG_DIR/$file")
+
+    location=$(echo "$1" | cut -d '.' -f 2)
+    machine=$(echo "$1" | cut -d '.' -f 1)
+
+    if [ ! -z "$3" ]
+    then
+        add_req="{\"nodes\":[\"$machine-$2.$location.grid5000.fr\"]}"
+    else
+        add_req="{\"nodes\":[\"$machine.$location.grid5000.fr\"]}"
+    fi
+
+    echo "$add_req"
+
+    curl -s -d "$add_req" -X POST https://api.grid5000.fr/stable/sites/"$location"/vlans/"$kavlan_id" > /dev/null
+}
+
+get_node() {
+    # 1 - location
+    # returns the node name allocated in this location
+    node=$(ls "$CONFIG_DIR" | grep "node_$1" | head -n 1)
+    echo $(cat "$CONFIG_DIR/$node")
+}
+
+setup() {
+    rm -rf "$CONFIG_DIR/"
+    mkdir -p "$CONFIG_DIR"
+
+    reserve_job nancy gros 1293 1391 4
+    reserve_job lille chiclet 1294 1390 2
+
+    node_nancy=$(get_node nancy)
+    node_lille=$(get_node lille)
+
+
+    network_machine "$node_lille" "eth1" 1390
+
+    ssh root@"$node_lille" "ip addr add 10.1.8.7 dev eno2
+ip link set dev eno2 up
+sleep 1
+ip route add 10.1.8.0/24 dev eno2"
+
+    network_machine "$node_lille" "" 1294
+    network_machine "$node_nancy" "eth1" 1293
+    network_machine "$node_nancy" "eth2" 1391
+    network_machine "$node_nancy" "eth3" 1390
+}
+
+case "$1" in
+    "setup")
+        setup
+        ;;
+    *)
+        help
+        ;;
+esac
