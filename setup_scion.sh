@@ -188,7 +188,7 @@ network_machine() {
     location=$(echo "$1" | cut -d '.' -f 2)
     machine=$(echo "$1" | cut -d '.' -f 1)
 
-    if [ ! -z "$3" ]
+    if [ ! -z "$2" ]
     then
         add_req="{\"nodes\":[\"$machine-$2.$location.grid5000.fr\"]}"
     else
@@ -217,9 +217,9 @@ setup() {
     node_nancy=$(get_node nancy)
     node_lille=$(get_node lille)
 
-
     network_machine "$node_lille" "eth1" 1390
 
+    # Set up the eno2 interface of lille before disconnecting it from g5k
     ssh root@"$node_lille" "ip addr add 10.1.8.7 dev eno2
 ip link set dev eno2 up
 sleep 1
