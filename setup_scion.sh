@@ -7,6 +7,8 @@ help() {
 
 Available subcommands:
   setup - runs the initial setup of all jobs on sites
+  extend - extends the reservation of a job id on a location
+  cron - generate crontab to automatically extend active jobs
   help - shows this message
 "
 }
@@ -204,11 +206,11 @@ get_node() {
     # 1 - location
     # returns the node name allocated in this location
     node=$(ls "$CONFIG_DIR" | grep "node_$1" | head -n 1)
-    echo $(cat "$CONFIG_DIR/$node")
+    cat "$CONFIG_DIR/$node"
 }
 
 setup() {
-    rm -rf "$CONFIG_DIR/"
+    rm -rf "$CONFIG_DIR"
     mkdir -p "$CONFIG_DIR"
 
     reserve_job nancy gros 1293 1391 4
@@ -231,9 +233,62 @@ ip route add 10.1.8.0/24 dev eno2"
     network_machine "$node_nancy" "eth3" 1390
 }
 
+get_cron() {
+    # goal of this is to generate a list of cron tabs and plug ourself as the application to prolong this
+
+    cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
+
+    # Extend the machine reservation, if not possible then switch to another machine
+    # example for machine name: node_nancy_1234567
+    for m in node_*
+    do
+        job_id=$(echo "$m" | cut -d '_' -f 3)
+        location=$(echo "$m" | cut -d '_' -f 2)
+
+        start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$location"/internal/oarapi/jobs/"$job_id".json | jq '.start_time')
+        extend=$(echo "$start" - 300 | bc)
+        minute=$(date --date "@$extend" +"%M")
+        echo "$minute * * * * /home/$USER/ouigo extend $job_id $location"
+    done
+
+    for v in vlan_*
+    do
+        job_id=$(echo "$v" | cut -d '_' -f 4)
+        location=$(echo "$v" | cut -d '_' -f 3)
+
+        start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/lille/internal/oarapi/jobs/1757858.json | jq '.start_time')
+        extend=$(echo "$start" - 300 | bc)
+        minute=$(date --date "@$extend" +"%M")
+        echo "$minute * * * * /home/$USER/ouigo extend $job_id $location"
+    done
+}
+
+extend_job() {
+    # 1 - job
+    # 2 - location
+
+    req='{"method":"walltime-change", "walltime":"+1:0:0"}'
+
+    res=$(curl -s -X POST https://api.grid5000.fr/stable/sites/"$2"/internal/oarapi/jobs/"$1".json -H 'Content-Type: application/json' -d "$req")
+
+    acc=$(echo "$res" | jq '.status' | xargs)
+    if [ "$acc" != "Accepted" ]
+    then
+        # TODO: Error case handling
+        logerror "Could not extend reservation of job $job_id"
+        logerror "$(echo $res | jq '.cmd_output')"
+    fi
+}
+
 case "$1" in
     "setup")
         setup
+        ;;
+    "extend")
+        extend_job "$2" "$3"
+        ;;
+    "cron")
+        get_cron
         ;;
     *)
         help
