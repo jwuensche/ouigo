@@ -256,7 +256,7 @@ get_cron() {
         job_id=$(echo "$v" | cut -d '_' -f 4)
         location=$(echo "$v" | cut -d '_' -f 3)
 
-        start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/lille/internal/oarapi/jobs/1757858.json | jq '.start_time')
+        start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$location"/internal/oarapi/jobs/"$job_id".json | jq '.start_time')
         extend=$(echo "$start" - 300 | bc)
         minute=$(date --date "@$extend" +"%M")
         echo "$minute * * * * /home/$USER/ouigo extend $job_id $location"
