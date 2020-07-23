@@ -9,6 +9,7 @@ Available subcommands:
   setup - runs the initial setup of all jobs on sites
   extend - extends the reservation of a job id on a location
   cron - generate crontab to automatically extend active jobs
+  clear - remove active crontab and cancel jobs
   help - shows this message
 "
 }
@@ -238,6 +239,8 @@ get_cron() {
 
     cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
 
+    tmp=$(mktemp)
+
     # Extend the machine reservation, if not possible then switch to another machine
     # example for machine name: node_nancy_1234567
     for m in node_*
@@ -248,7 +251,7 @@ get_cron() {
         start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$location"/internal/oarapi/jobs/"$job_id".json | jq '.start_time')
         extend=$(echo "$start" - 300 | bc)
         minute=$(date --date "@$extend" +"%M")
-        echo "$minute * * * * /home/$USER/ouigo extend $job_id $location"
+        echo "$minute * * * * /home/$USER/ouigo extend $job_id $location" >> "$tmp"
     done
 
     for v in vlan_*
@@ -259,8 +262,12 @@ get_cron() {
         start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$location"/internal/oarapi/jobs/"$job_id".json | jq '.start_time')
         extend=$(echo "$start" - 300 | bc)
         minute=$(date --date "@$extend" +"%M")
-        echo "$minute * * * * /home/$USER/ouigo extend $job_id $location"
+        echo "$minute * * * * /home/$USER/ouigo extend $job_id $location" >> "$tmp"
     done
+
+    loginfo "Writing crontabs via crontab..."
+    crontab "$tmp"
+    loginfo "Done"
 }
 
 extend_job() {
@@ -280,6 +287,33 @@ extend_job() {
     fi
 }
 
+clear() {
+    # goal of this is to delete all active resources
+
+    cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
+
+    # Extend the machine reservation, if not possible then switch to another machine
+    # example for machine name: node_nancy_1234567
+    for m in node_*
+    do
+        job_id=$(echo "$m" | cut -d '_' -f 3)
+        location=$(echo "$m" | cut -d '_' -f 2)
+        loginfo "Deleting machine $job_id in $location"
+        curl -s -X DELETE https://api.grid5000.fr/3.0/sites/"$location"/jobs/"$job_id"
+    done
+
+    for v in vlan_*
+    do
+        job_id=$(echo "$v" | cut -d '_' -f 4)
+        location=$(echo "$v" | cut -d '_' -f 3)
+        loginfo "Deleting vlan $job_id in $location"
+        curl -s -X DELETE https://api.grid5000.fr/3.0/sites/"$location"/jobs/"$job_id"
+    done
+
+    rm -rf "$CONFIG_DIR"
+    crontab -r
+}
+
 case "$1" in
     "setup")
         setup
@@ -289,6 +323,9 @@ case "$1" in
         ;;
     "cron")
         get_cron
+        ;;
+    "clear")
+        clear
         ;;
     *)
         help
