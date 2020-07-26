@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CONFIG_DIR=$HOME/.cache/g5k
+CONFIG_DIR="$HOME/.cache/g5k"
 
 help() {
     echo -e "ouigo - distributing jobs on a budget
@@ -112,11 +112,11 @@ reserve_job() {
                   -X POST -H 'Content-Type: application/json' \
                   -d "{\"resources\":\"{eth_count>=$5}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ubuntu1804-x64-min -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
 
-  node_id=$(echo "$node_result" | jq '.uid')
-  loginfo "Reserved node in $1 (Job ID $node_id)"
-  wait_for_node "$1" "$node_id"
-  node_name=$(get_node_name "$1" "$node_id")
-  loginfo "Got machine $node_name in $1 (Job ID $node_id)"
+  nodeid=$(echo "$node_result" | jq '.uid')
+  loginfo "Reserved node in $1 (Job ID $nodeid)"
+  wait_for_node "$1" "$nodeid"
+  node_name=$(get_node_name "$1" "$nodeid")
+  loginfo "Got machine $node_name in $1 (Job ID $nodeid)"
 
   loginfo "Setting up vlan $3 for machine $node_name"
   vlan_manager "$3"
@@ -125,7 +125,7 @@ reserve_job() {
 
   loginfo "Setting up machine $node_name"
   wait_for_environment "$node_name"
-  echo "$node_name" > "$CONFIG_DIR/node_$1_$node_id"
+  echo "$node_name" > "$CONFIG_DIR/node_$1_${nodeid}_$5"
 }
 
 vlan_manager() {
@@ -140,20 +140,20 @@ lyon
 grenoble
 sophia"
 
-    # for vlan in $(ls "$CONFIG_DIR" | grep "vlan")
-    # do
-    #     vlan_id=$(echo "$vlan" | cut -d '_' -f 2)
-    #     if [ "$vlan_id" -eq "$1" ]
-    #     then
-    #         kvl=$(cat "$CONFIG_DIR/$vlan")
-    #         loginfo "VLAN ID $1 is already assigned to kavlan $kvl. Skipping..."
-    #         return 1
-    #     fi
-    # done
+    for vlan in $(ls "$CONFIG_DIR" | grep "vlan")
+    do
+        vlan_id=$(echo "$vlan" | cut -d '_' -f 2)
+        if [ "$vlan_id" == "$1" ]
+        then
+            kvl=$(cat "$CONFIG_DIR/$vlan")
+            loginfo "VLAN ID $1 is already assigned to kavlan $kvl. Skipping..."
+            return 1
+        fi
+    done
 
     for location in $(ls "$CONFIG_DIR" | grep vlan)
     do
-        location=$(echo $location | cut -d '_' -f 3)
+        location=$(echo "$location" | cut -d '_' -f 3)
         locations=$(echo "$locations" | grep -v "$location")
     done
 
@@ -191,6 +191,9 @@ network_machine() {
     location=$(echo "$1" | cut -d '.' -f 2)
     machine=$(echo "$1" | cut -d '.' -f 1)
 
+    machine_file=$(ls "$CONFIG_DIR" | grep "node_$location" | head -n 1)
+    echo "$3" >> "$CONFIG_DIR/$machine_file"
+
     if [ ! -z "$2" ]
     then
         add_req="{\"nodes\":[\"$machine-$2.$location.grid5000.fr\"]}"
@@ -198,7 +201,7 @@ network_machine() {
         add_req="{\"nodes\":[\"$machine.$location.grid5000.fr\"]}"
     fi
 
-    echo "$add_req"
+    # echo "$add_req"
 
     curl -s -d "$add_req" -X POST https://api.grid5000.fr/stable/sites/"$location"/vlans/"$kavlan_id" > /dev/null
 }
@@ -221,7 +224,6 @@ setup() {
     node_lille=$(get_node lille)
 
     network_machine "$node_lille" "eth1" 1390
-
     # Set up the eno2 interface of lille before disconnecting it from g5k
     ssh root@"$node_lille" "ip addr add 10.1.8.7 dev eno2
 ip link set dev eno2 up
@@ -284,7 +286,58 @@ extend_job() {
         # TODO: Error case handling
         logerror "Could not extend reservation of job $job_id"
         logerror "$(echo $res | jq '.cmd_output')"
+        loginfo "Reserving new job..."
+
+        cd "$CONFIG_DIR"
+        job_file="$(echo *$job_id*)"
+
+        if [ "$(echo $job_file | grep node | wc -l)" == 1 ]
+        then
+            recreate_machine "$job_file"
+            get_cron
+        else
+            recreate_vlan "$job_file"
+            get_cron
+        fi
     fi
+}
+
+recreate_machine() {
+    # 1 - job file
+
+    cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
+    vlans=$(tail -n +2 "$1")
+    eth=$(echo "$1" | cut -d '_' -f 4)
+
+    fst=$(echo "$vlans" | sed -n '1p')
+    snd=$(echo "$vlans" | sed -n '2p')
+
+    location=$(echo "$1" | cut -d '_' -f 2)
+
+    rm "$1"
+    reserve_job "$location" "" "$fst" "$snd" "$eth"
+
+    node=$(get_node "$location")
+
+    if [ "$location" == "nancy" ]
+    then
+        network_machine "$node" "eth1" 1293
+        network_machine "$node" "eth2" 1391
+        network_machine "$node" "eth3" 1390
+    else
+        network_machine "$node" "eth1" 1390
+        # Set up the eno2 interface of lille before disconnecting it from g5k
+        ssh root@"$node" "ip addr add 10.1.8.7 dev eno2
+ip link set dev eno2 up
+sleep 1
+ip route add 10.1.8.0/24 dev eno2"
+        network_machine "$node" "" 1294
+    fi
+}
+
+recreate_vlan() {
+    # 1 - job file
+    echo "noop" > /dev/null
 }
 
 clear() {
