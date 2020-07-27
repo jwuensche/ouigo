@@ -157,9 +157,14 @@ sophia"
         locations=$(echo "$locations" | grep -v "$location")
     done
 
-    loginfo "New vlan location found, setting up..."
-
-    reserve_vlan $(echo "$locations" | head -n 1) "$1"
+    if [ "$(echo "$locations" | wc -l)" -gt 0 ]
+    then
+        loginfo "New vlan location found, setting up..."
+        reserve_vlan "$(echo "$locations" | sort -R | head -n 1)" "$1"
+    else
+        logerror "No locations left to populate, abort.."
+        exit 1
+    fi
 }
 
 reserve_vlan() {
@@ -284,12 +289,12 @@ extend_job() {
     if [ "$acc" != "Accepted" ]
     then
         # TODO: Error case handling
-        logerror "Could not extend reservation of job $job_id"
+        logerror "Could not extend reservation of job $1"
         logerror "$(echo $res | jq '.cmd_output')"
         loginfo "Reserving new job..."
 
         cd "$CONFIG_DIR"
-        job_file="$(echo *$job_id*)"
+        job_file="$(echo *$1*)"
 
         if [ "$(echo $job_file | grep node | wc -l)" == 1 ]
         then
