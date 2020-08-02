@@ -16,12 +16,18 @@ Available subcommands:
 
 loginfo () {
     # 1 - text
-    echo -e "\e[32m[INFO] $1\e[0m"
+    echo -e "\e[32m[INFO]\e[0m $1"
+}
+
+logwarn() {
+    # 1 - text
+    echo -e "\e[1;33[WARN]\e[0m $1"
 }
 
 logerror () {
     # 1 - text
-    echo -e "\e[31m[ERROR: $(date +"%c")] $1\e[0m"
+    echo -e "\e[31m[ERROR: $(date +"%c")]\e[0m $1"
+    exit 1
 }
 
 unavailable () {
@@ -163,7 +169,6 @@ sophia"
         reserve_vlan "$(echo "$locations" | sort -R | head -n 1)" "$1"
     else
         logerror "No locations left to populate, abort.."
-        exit 1
     fi
 }
 
@@ -289,11 +294,11 @@ extend_job() {
     if [ "$acc" != "Accepted" ]
     then
         # TODO: Error case handling
-        logerror "Could not extend reservation of job $1"
-        logerror "$(echo $res | jq '.cmd_output')"
+        logwarn "Could not extend reservation of job $1"
+        logwarn "$(echo $res | jq '.cmd_output')"
         loginfo "Reserving new job..."
 
-        cd "$CONFIG_DIR"
+        cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
         job_file="$(echo *$1*)"
 
         if [ "$(echo $job_file | grep node | wc -l)" == 1 ]
@@ -342,7 +347,31 @@ ip route add 10.1.8.0/24 dev eno2"
 
 recreate_vlan() {
     # 1 - job file
-    echo "noop" > /dev/null
+    vlan_id=$(echo "$1" | cut -d '_' -f 2)
+
+    vlan_manager "$vlan_id"
+
+    node_nancy=$(get_node nancy)
+    node_lille=$(get_node lille)
+
+    case "$vlan_id" in
+        "1390")
+            network_machine "$node_lille" "eth1" 1390
+            network_machine "$node_nancy" "eth3" 1390
+            ;;
+        "1391")
+            netwok_machine "$node_nancy" "eth2" 1391
+            ;;
+        "1293")
+            network_machine "$node_nancy" "eth1" 1293
+            ;;
+        "1294")
+            network_machine "$node_lille" "" 1294
+            ;;
+        *)
+            logerror "VLAN ID $1 is not recognized. Aborting."
+            ;;
+    esac
 }
 
 clear() {
