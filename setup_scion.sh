@@ -21,7 +21,7 @@ loginfo () {
 
 logwarn() {
     # 1 - text
-    echo -e "\e[1;33[WARN]\e[0m $1"
+    echo -e "\e[33[WARN]\e[0m $1"
 }
 
 logerror () {
@@ -39,17 +39,25 @@ Have a check on the availability on the referenced clusters and try again."
 wait_for_node() {
     # 1 - Location string
     # 2 - Job id
+    prev_state=""
     loginfo "Waiting for node in $1 to become ready.."
     while true
     do
         sleep 5
         state=$(curl -s -X GET https://api.grid5000.fr/3.0/sites/"$1"/jobs/"$2" | jq '.state')
-        loginfo "Current state is $state"
         if [ "$state" == \"running\" ]
         then
             break
+            echo ""
         fi
-        loginfo "Node was not ready, waiting more.."
+        if [ "$prev_state" == "$state" ]
+        then
+            echo -n "."
+        else
+            prev_state="$state"
+            loginfo "Current state is $state"
+            loginfo "Node was not ready, waiting more.."
+        fi
     done
     return 0
 }
@@ -146,18 +154,22 @@ lyon
 grenoble
 sophia"
 
-    for vlan in $(ls "$CONFIG_DIR" | grep "vlan")
+    cd "$CONFIG_DIR" || logerror "Machines have not yet been created, aborting..."
+
+    # Check if VLAN already in use
+    for vlan in *vlan*
     do
         vlan_id=$(echo "$vlan" | cut -d '_' -f 2)
         if [ "$vlan_id" == "$1" ]
         then
-            kvl=$(cat "$CONFIG_DIR/$vlan")
+            kvl=$(cat "$vlan")
             loginfo "VLAN ID $1 is already assigned to kavlan $kvl. Skipping..."
             return 1
         fi
     done
 
-    for location in $(ls "$CONFIG_DIR" | grep vlan)
+    # Filter out already used locations
+    for location in *vlan*
     do
         location=$(echo "$location" | cut -d '_' -f 3)
         locations=$(echo "$locations" | grep -v "$location")
@@ -220,7 +232,7 @@ get_node() {
     # 1 - location
     # returns the node name allocated in this location
     node=$(ls "$CONFIG_DIR" | grep "node_$1" | head -n 1)
-    cat "$CONFIG_DIR/$node"
+    cat "$CONFIG_DIR/$node" | head -n 1
 }
 
 setup() {
@@ -263,7 +275,7 @@ get_cron() {
         start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$location"/internal/oarapi/jobs/"$job_id".json | jq '.start_time')
         extend=$(echo "$start" - 300 | bc)
         minute=$(date --date "@$extend" +"%M")
-        echo "$minute * * * * /home/$USER/ouigo extend $job_id $location" >> "$tmp"
+        echo "$minute * * * * export USER=$USER && /home/$USER/ouigo extend $job_id $location >> $CONFIG_DIR/log" >> "$tmp"
     done
 
     for v in vlan_*
@@ -274,7 +286,7 @@ get_cron() {
         start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$location"/internal/oarapi/jobs/"$job_id".json | jq '.start_time')
         extend=$(echo "$start" - 300 | bc)
         minute=$(date --date "@$extend" +"%M")
-        echo "$minute * * * * /home/$USER/ouigo extend $job_id $location" >> "$tmp"
+        echo "$minute * * * * export USER=$USER && /home/$USER/ouigo extend $job_id $location >> $CONFIG_DIR/log" >> "$tmp"
     done
 
     loginfo "Writing crontabs via crontab..."
