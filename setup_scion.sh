@@ -209,7 +209,7 @@ network_machine() {
 
     cd "$CONFIG_DIR" || logerror "Machines have not yet been created, aborting..."
 
-    file="vlan_$3*"
+    file=$(ls "$CONFIG_DIR" | grep "vlan_$3")
     kavlan_id=$(cat "$file")
 
     location=$(echo "$1" | cut -d '.' -f 2)
