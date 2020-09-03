@@ -7,5 +7,4 @@
   availability)
   If this cannnot be done error out
 
-- Renew existing reservations
-  This is were the files come into play, they save some adjurning data we may need to process requests like the job id, node name, vlan id
+- Use images for machines
