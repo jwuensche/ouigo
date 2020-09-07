@@ -16,12 +16,12 @@ Available subcommands:
 
 loginfo () {
     # 1 - text
-    echo -e "\e[32m[INFO]\e[0m $1"
+    echo -e "\e[32m[INFO: $(date +'%H:%M:%S')]\e[0m $1"
 }
 
 logwarn() {
     # 1 - text
-    echo -e "\e[1;33m[WARN]\e[0m $1"
+    echo -e "\e[1;33m[WARN: $(date +'%H:%M:%S')]\e[0m $1"
 }
 
 logerror () {
@@ -215,7 +215,7 @@ network_machine() {
     location=$(echo "$1" | cut -d '.' -f 2)
     machine=$(echo "$1" | cut -d '.' -f 1)
 
-    machine_file=$(echo "node_$location*" | head -n 1)
+    machine_file=$(ls "$CONFIG_DIR" | grep "node_$location*" | head -n 1)
     echo "$3" >> "$CONFIG_DIR/$machine_file"
 
     if [ ! -z "$2" ]
@@ -226,7 +226,7 @@ network_machine() {
     fi
 
     loginfo "Request node: $add_req"
-    loginfo "URL: https://api.grid5000.fr/stable/sites/\"$location\"/vlans/\"$kavlan_id\""
+    loginfo "URL: https://api.grid5000.fr/stable/sites/$location/vlans/$kavlan_id"
     loginfo "Connecting to kavlan id: $kavlan_id"
 
     curl -s -d "$add_req" -X POST https://api.grid5000.fr/stable/sites/"$location"/vlans/"$kavlan_id" > /dev/null
@@ -260,7 +260,6 @@ ip route add 10.1.8.0/24 dev eno2"
     network_machine "$node_nancy" "eth1" 1293
     network_machine "$node_nancy" "eth2" 1391
     network_machine "$node_nancy" "eth3" 1390
-
     get_cron
 }
 
