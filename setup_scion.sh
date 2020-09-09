@@ -305,6 +305,8 @@ extend_job() {
 
     req='{"method":"walltime-change", "walltime":"+1:0:0"}'
 
+    loginfo "Prolonging reservation of $1 in $2"
+
     res=$(curl -s -X POST https://api.grid5000.fr/stable/sites/"$2"/internal/oarapi/jobs/"$1".json -H 'Content-Type: application/json' -d "$req")
 
     acc=$(echo "$res" | jq '.status' | xargs)
@@ -320,13 +322,25 @@ extend_job() {
 
         if [ "$(echo $job_file | grep node | wc -l)" == 1 ]
         then
+            name=$(cat "$job_file" | head -n 1)
+            ssh root@"$name" tgz-g5k > "job_$1.tgz"
             recreate_machine "$job_file"
             get_cron
         else
             recreate_vlan "$job_file"
             get_cron
         fi
+    else
+        loginfo "Reservation for $1 in $2 successful"
     fi
+}
+
+delete_job() {
+    # 1 - job id
+    # 2 - location
+
+    loginfo "Deleting job $1 in $2..."
+    curl -s -X DELETE "https://api.grid5000.fr/3.0/sites/$2/jobs/$1"
 }
 
 recreate_machine() {
@@ -340,6 +354,8 @@ recreate_machine() {
     snd=$(echo "$vlans" | sed -n '2p')
 
     location=$(echo "$1" | cut -d '_' -f 2)
+    jobid=$(echo "$1" | cut -d '_' -f 3)
+    delete_job "$jobid" "$location"
 
     rm "$1"
     reserve_job "$location" "" "$fst" "$snd" "$eth"
@@ -367,6 +383,7 @@ recreate_vlan() {
     vlan_id=$(echo "$1" | cut -d '_' -f 2)
 
     vlan_manager "$vlan_id"
+    rm "$1"
 
     node_nancy=$(get_node nancy)
     node_lille=$(get_node lille)
