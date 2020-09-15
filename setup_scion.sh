@@ -278,7 +278,7 @@ get_cron() {
         location=$(echo "$m" | cut -d '_' -f 2)
 
         start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$location"/internal/oarapi/jobs/"$job_id".json | jq '.start_time')
-        extend=$(echo "$start" - 300 | bc)
+        extend=$(echo "$start" - 540 | bc)
         minute=$(date --date "@$extend" +"%M")
         echo "$minute * * * * export USER=$USER && /home/$USER/ouigo extend $job_id $location >> $CONFIG_DIR/log" >> "$tmp"
     done
@@ -289,7 +289,7 @@ get_cron() {
         location=$(echo "$v" | cut -d '_' -f 3)
 
         start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$location"/internal/oarapi/jobs/"$job_id".json | jq '.start_time')
-        extend=$(echo "$start" - 300 | bc)
+        extend=$(echo "$start" - 540 | bc)
         minute=$(date --date "@$extend" +"%M")
         echo "$minute * * * * export USER=$USER && /home/$USER/ouigo extend $job_id $location >> $CONFIG_DIR/log" >> "$tmp"
     done
@@ -312,7 +312,6 @@ extend_job() {
     acc=$(echo "$res" | jq '.status' | xargs)
     if [ "$acc" != "Accepted" ]
     then
-        # TODO: Error case handling
         logwarn "Could not extend reservation of job $1"
         logwarn "$(echo $res | jq '.cmd_output')"
         loginfo "Reserving new job..."
@@ -323,7 +322,7 @@ extend_job() {
         if [ "$(echo $job_file | grep node | wc -l)" == 1 ]
         then
             name=$(cat "$job_file" | head -n 1)
-            ssh root@"$name" tgz-g5k > "job_$1.tgz"
+            # ssh root@"$name" tgz-g5k > "job_$1.tgz"
             recreate_machine "$job_file"
             get_cron
         else
@@ -343,6 +342,33 @@ delete_job() {
     curl -s -X DELETE "https://api.grid5000.fr/3.0/sites/$2/jobs/$1"
 }
 
+# This is intended as a quick fix for the issue that on old machines network configurations are preserved leading to some error states later on
+# Hope this will work as a fix
+remove_network() {
+    # 1 - machine
+    # 2 - interface
+    loginfo "Removing network from machine $1"
+
+    cd "$CONFIG_DIR" || logerror "Machines have not yet been created, aborting..."
+
+    location=$(echo "$1" | cut -d '.' -f 2)
+    machine=$(echo "$1" | cut -d '.' -f 1)
+
+    machine_file=$(ls "$CONFIG_DIR" | grep "node_$location*" | head -n 1)
+
+    if [ ! -z "$2" ]
+    then
+        add_req="{\"nodes\":[\"$machine-$2.$location.grid5000.fr\"]}"
+    else
+        add_req="{\"nodes\":[\"$machine.$location.grid5000.fr\"]}"
+    fi
+
+    loginfo "Request node: $add_req"
+    loginfo "URL: https://api.grid5000.fr/stable/sites/$location/vlans/DEFAULT"
+
+    curl -s -d "$add_req" -X POST https://api.grid5000.fr/stable/sites/"$location"/vlans/DEFAULT > /dev/null
+}
+
 recreate_machine() {
     # 1 - job file
 
@@ -352,10 +378,21 @@ recreate_machine() {
 
     fst=$(echo "$vlans" | sed -n '1p')
     snd=$(echo "$vlans" | sed -n '2p')
-
+    machine=$(cat "$1" | head -n 1)
     location=$(echo "$1" | cut -d '_' -f 2)
     jobid=$(echo "$1" | cut -d '_' -f 3)
-    delete_job "$jobid" "$location"
+
+    if [ "$location" == "nancy" ]
+    then
+      remove_network "$machine" "eth1"
+      remove_network "$machine" "eth2"
+      remove_network "$machine" "eth3"
+    else
+      remove_network "$machine" ""
+      remove_network "$machine" "eth1"
+    fi
+
+    # delete_job "$jobid" "$location"
 
     rm "$1"
     reserve_job "$location" "" "$fst" "$snd" "$eth"
