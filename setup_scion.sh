@@ -419,8 +419,8 @@ recreate_vlan() {
     # 1 - job file
     vlan_id=$(echo "$1" | cut -d '_' -f 2)
 
-    vlan_manager "$vlan_id"
     rm "$1"
+    vlan_manager "$vlan_id"
 
     node_nancy=$(get_node nancy)
     node_lille=$(get_node lille)
