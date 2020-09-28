@@ -14,7 +14,7 @@ This script is intended to be executed in the Grid5000 intranet. You'll need you
 
 Once you made sure everything works with your account, copy this script into a site in g5k e.g. lille
 ```bash
-scp setup-g5k.sh _username_@access.grid5000.fr:lille
+scp setup_scion.sh _username_@access.grid5000.fr:lille
 ```
 
 Then connect to your site
@@ -24,7 +24,7 @@ ssh -J _username_@access.grid5000.fr  _username_@lille.grid5000.fr
 
 And execute the script there
 ```bash
-bash setup-g5k.sh
+bash setup_scion.sh
 ```
 
 It takes some time until this is completed, after it is finished you have two machines in Grid5000 in Nancy and Lille which both have a scionlab user
