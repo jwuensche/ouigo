@@ -417,21 +417,21 @@ ip route add 10.1.8.0/24 dev eno2"
 
 recreate_vlan() {
     # 1 - job file
-    vlan_id=$(echo "$1" | cut -d '_' -f 2)
+    ext_vlan=$(echo "$1" | cut -d '_' -f 2)
 
     rm "$1"
-    vlan_manager "$vlan_id"
+    vlan_manager "$ext_vlan"
 
     node_nancy=$(get_node nancy)
     node_lille=$(get_node lille)
 
-    case "$vlan_id" in
+    case "$ext_vlan" in
         "1390")
             network_machine "$node_lille" "eth1" 1390
             network_machine "$node_nancy" "eth3" 1390
             ;;
         "1391")
-            netwok_machine "$node_nancy" "eth2" 1391
+            network_machine "$node_nancy" "eth2" 1391
             ;;
         "1293")
             network_machine "$node_nancy" "eth1" 1293
@@ -440,7 +440,7 @@ recreate_vlan() {
             network_machine "$node_lille" "" 1294
             ;;
         *)
-            logerror "VLAN ID $1 is not recognized. Aborting."
+            logerror "VLAN ID $ext_vlan is not recognized. Aborting."
             ;;
     esac
 }
