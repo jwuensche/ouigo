@@ -14,19 +14,36 @@ Available subcommands:
 "
 }
 
+__log__ () {
+    # @ - additional echo flags
+    # 1 - message
+    # 2 - color
+    # 3 - level
+
+    params=("${@:1:$#-3}") # all parameters except the last written to an array
+    msg="${*:(-3):1}" # third to last parameter
+    color="${*:(-2):1}" # second to last parameter
+    level="${*:(-1):1}" # last parameter
+
+    echo -e "${params[@]}" "\e[${color}[${level}: $(date -Is)]\e[0m ${msg}"
+}
+
 loginfo () {
-    # 1 - text
-    echo -e "\e[32m[INFO: $(date +'%H:%M:%S')]\e[0m $1"
+    # @ - additional echo flags
+    # 1 - message
+    __log__ "$@" "0;32m" INFO
 }
 
 logwarn() {
+    # @ - additional echo flags
     # 1 - text
-    echo -e "\e[1;33m[WARN: $(date +'%H:%M:%S')]\e[0m $1"
+    __log__ "$@" "1;33m" WARN
 }
 
 logerror () {
-    # 1 - text
-    echo -e "\e[31m[ERROR: $(date +"%c")]\e[0m $1"
+    # @ - additional echo flags
+    # 1 - message
+    __log__ "$@" "1;31m" ERROR
     exit 1
 }
 
@@ -36,28 +53,60 @@ Have a check on the availability on the referenced clusters and try again."
     return 1
 }
 
+__spin__() {
+    local i=0
+    local sp='🕛🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚'
+    local n=${#sp}
+    printf '  '
+    sleep 0.2
+    while true
+    do
+        printf '\b\b%s' "${sp:i++%n:1}"
+        sleep 0.1
+    done
+}
+
+SPIN_PID=
+spin() {
+    case "$1" in
+        start)
+            __spin__ &
+            SPIN_PID="$!"
+        ;;
+        stop)
+            kill "$SPIN_PID"
+        ;;
+        *)
+            logwarn "Unknown spinner command \`$1\`!"
+        ;;
+    esac
+}
+
 wait_for_node() {
     # 1 - Location string
     # 2 - Job id
     prev_state=""
-    loginfo "Waiting for node in $1 to become ready.."
+    loginfo -n "Waiting for job in $1 to become ready... "
+    spin start
     while true
     do
         sleep 5
-        state=$(curl -s -X GET https://api.grid5000.fr/3.0/sites/"$1"/jobs/"$2" | jq '.state')
-        if [ "$state" == \"running\" ]
-        then
-            break
-            echo ""
-        fi
-        if [ "$prev_state" == "$state" ]
-        then
-            echo -n "."
-        else
-            prev_state="$state"
-            loginfo "Current state is $state"
-            loginfo "Node was not ready, waiting more.."
-        fi
+        state=$(curl -s -X GET "https://api.grid5000.fr/3.0/sites/$1/jobs/$2" | jq '.state')
+        case "$state" in
+            '"running"')
+                spin stop
+                echo
+                break
+                ;;
+            "$prev_state")
+                ;;
+            *)
+                prev_state="$state"
+                echo
+                loginfo "Current state is $state"
+                loginfo -n "Job was not ready, waiting more...   "
+                ;;
+        esac
     done
     return 0
 }
@@ -114,10 +163,10 @@ wait_for_environment() {
 }
 
 reserve_job() {
-# 1 - job location
-# 2 - cluster name
-# 3 - first vlan id
-# 4 - second vlan id
+    # 1 - job location
+    # 2 - cluster name
+    # 3 - first vlan id
+    # 4 - second vlan id
     # 5 - amount of ethernet interfaces 
 
   # Get nodes and check availability there is a dummy `sleep infinity` command to keep the job alive
@@ -218,7 +267,7 @@ network_machine() {
     machine_file=$(ls "$CONFIG_DIR" | grep "node_$location*" | head -n 1)
     echo "$3" >> "$CONFIG_DIR/$machine_file"
 
-    if [ ! -z "$2" ]
+    if [ -n "$2" ]
     then
         add_req="{\"nodes\":[\"$machine-$2.$location.grid5000.fr\"]}"
     else
@@ -236,7 +285,7 @@ get_node() {
     # 1 - location
     # returns the node name allocated in this location
     node=$(ls "$CONFIG_DIR" | grep "node_$1" | head -n 1)
-    cat "$CONFIG_DIR/$node" | head -n 1
+    head -n 1 < "$CONFIG_DIR/$node"
 }
 
 setup() {
@@ -313,20 +362,20 @@ extend_job() {
     if [ "$acc" != "Accepted" ]
     then
         logwarn "Could not extend reservation of job $1"
-        logwarn "$(echo $res | jq '.cmd_output')"
+        logwarn "$(echo "$res" | jq '.cmd_output')"
         loginfo "Reserving new job..."
 
         cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
-        job_file="$(echo *$1*)"
+        job_file="$(echo -- *"$1"*)"
 
-        if ! stat "$job_file" > /dev/null 2> /dev/null
+        if ! stat "$job_file" > /dev/null 2>&1
         then
             logerror "Job $1 in $2 is alreading being reacquistioned, aborting..."
         fi
 
-        if [ "$(echo $job_file | grep node | wc -l)" == 1 ]
+        if [ "$(echo "$job_file" | grep -c node)" == 1 ]
         then
-            name=$(cat "$job_file" | head -n 1)
+            name="$(head -n 1 < "$job_file")"
             # ssh root@"$name" tgz-g5k > "job_$1.tgz"
             recreate_machine "$job_file"
             get_cron
@@ -361,7 +410,7 @@ remove_network() {
 
     machine_file=$(ls "$CONFIG_DIR" | grep "node_$location*" | head -n 1)
 
-    if [ ! -z "$2" ]
+    if [ -n "$2" ]
     then
         add_req="{\"nodes\":[\"$machine-$2.$location.grid5000.fr\"]}"
     else
@@ -383,9 +432,9 @@ recreate_machine() {
 
     fst=$(echo "$vlans" | sed -n '1p')
     snd=$(echo "$vlans" | sed -n '2p')
-    machine=$(cat "$1" | head -n 1)
+    machine="$(head -n 1 < "$1")"
     location=$(echo "$1" | cut -d '_' -f 2)
-    jobid=$(echo "$1" | cut -d '_' -f 3)
+    # jobid=$(echo "$1" | cut -d '_' -f 3)
 
     if [ "$location" == "nancy" ]
     then
