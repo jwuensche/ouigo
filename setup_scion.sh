@@ -319,6 +319,11 @@ extend_job() {
         cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
         job_file="$(echo *$1*)"
 
+        if ! stat "$job_file" > /dev/null 2> /dev/null
+        then
+            logerror "Job $1 in $2 is alreading being reacquistioned, aborting..."
+        fi
+
         if [ "$(echo $job_file | grep node | wc -l)" == 1 ]
         then
             name=$(cat "$job_file" | head -n 1)
