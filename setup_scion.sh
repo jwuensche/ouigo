@@ -85,6 +85,9 @@ spin() {
 wait_for_node() {
     # 1 - Location string
     # 2 - Job id
+    local prev_state
+    local state
+
     prev_state=""
     loginfo -n "Waiting for job in $1 to become ready... "
     spin start
@@ -114,6 +117,7 @@ wait_for_node() {
 get_node_name() {
     # 1 - Location string
     # 2 - Job id
+    local name
     name=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs/"$2" | jq '.assigned_nodes[0]')
     echo "${name//\"/}"
 }
@@ -167,32 +171,39 @@ reserve_job() {
     # 2 - cluster name
     # 3 - first vlan id
     # 4 - second vlan id
-    # 5 - amount of ethernet interfaces 
+    # 5 - amount of ethernet interfaces
+    local node_result
+    local nodeid
+    local node_name
+   
+    # Get nodes and check availability there is a dummy `sleep infinity` command to keep the job alive
+    # the $OAR_NODEFILE has to be evaluated on the machine itself, so disregard the shellcheck warning here
+    node_result=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
+                    -X POST -H 'Content-Type: application/json' \
+                    -d "{\"resources\":\"{eth_count>=$5}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ubuntu1804-x64-min -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
 
-  # Get nodes and check availability there is a dummy `sleep infinity` command to keep the job alive
-  # the $OAR_NODEFILE has to be evaluated on the machine itself, so disregard the shellcheck warning here
-  node_result=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
-                  -X POST -H 'Content-Type: application/json' \
-                  -d "{\"resources\":\"{eth_count>=$5}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ubuntu1804-x64-min -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
+    nodeid=$(echo "$node_result" | jq '.uid')
+    loginfo "Reserved node in $1 (Job ID $nodeid)"
+    wait_for_node "$1" "$nodeid"
+    node_name=$(get_node_name "$1" "$nodeid")
+    loginfo "Got machine $node_name in $1 (Job ID $nodeid)"
 
-  nodeid=$(echo "$node_result" | jq '.uid')
-  loginfo "Reserved node in $1 (Job ID $nodeid)"
-  wait_for_node "$1" "$nodeid"
-  node_name=$(get_node_name "$1" "$nodeid")
-  loginfo "Got machine $node_name in $1 (Job ID $nodeid)"
+    loginfo "Setting up vlan $3 for machine $node_name"
+    vlan_manager "$3"
+    loginfo "Setting up vlan $4 for machines"
+    vlan_manager "$4"
 
-  loginfo "Setting up vlan $3 for machine $node_name"
-  vlan_manager "$3"
-  loginfo "Setting up vlan $4 for machines"
-  vlan_manager "$4"
-
-  loginfo "Setting up machine $node_name"
-  wait_for_environment "$node_name"
-  echo "$node_name" > "$CONFIG_DIR/node_$1_${nodeid}_$5"
+    loginfo "Setting up machine $node_name"
+    wait_for_environment "$node_name"
+    echo "$node_name" > "$CONFIG_DIR/node_$1_${nodeid}_$5"
 }
 
 vlan_manager() {
     # 1 - vlan id external domain
+    local location
+    local locations
+    local vlan_id
+    local kvl
 
     locations="lille
 nancy
@@ -236,17 +247,19 @@ sophia"
 reserve_vlan() {
     # 1 - job location
     # 2 - external domain vlan id
+    local vlan_job_id
+    local vlan_id
+   
+    vlan_job_id=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
+                        -X POST -H 'Content-Type: application/json' \
+                        -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$2\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$2\"}" | jq '.uid')
 
-  vlan_job_id=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
-                     -X POST -H 'Content-Type: application/json' \
-                     -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$2\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$2\"}" | jq '.uid')
+    loginfo "Reserved VLAN in $1 (Job ID $vlan_job_id)"
+    wait_for_node "$1" "$vlan_job_id"
 
-  loginfo "Reserved VLAN in $1 (Job ID $vlan_job_id)"
-  wait_for_node "$1" "$vlan_job_id"
+    vlan_id=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$1"/internal/oarapi/jobs/"$vlan_job_id"/resources.json | jq '.items[0].vlan' | xargs)
 
-  vlan_id=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$1"/internal/oarapi/jobs/"$vlan_job_id"/resources.json | jq '.items[0].vlan' | xargs)
-
-  echo "$vlan_id" > "$CONFIG_DIR/vlan_$2_$1_$vlan_job_id"
+    echo "$vlan_id" > "$CONFIG_DIR/vlan_$2_$1_$vlan_job_id"
 }
 
 network_machine() {
@@ -296,6 +309,9 @@ get_node() {
 }
 
 setup() {
+    local node_nancy
+    local node_lille
+
     rm -rf "$CONFIG_DIR"
     mkdir -p "$CONFIG_DIR"
 
@@ -321,6 +337,12 @@ ip route add 10.1.8.0/24 dev eno2"
 
 get_cron() {
     # goal of this is to generate a list of cron tabs and plug ourself as the application to prolong this
+    local tmp
+    local job_id
+    local location
+    local start
+    local extend
+    local minute
 
     cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
 
@@ -358,6 +380,11 @@ get_cron() {
 extend_job() {
     # 1 - job
     # 2 - location
+    local req
+    local res
+    local acc
+    local job_file
+    local name
 
     req='{"method":"walltime-change", "walltime":"+1:0:0"}'
 
@@ -410,6 +437,7 @@ remove_network() {
     # 2 - interface
     local location
     local machine
+    local add_req
 
     loginfo "Removing network from machine $1"
 
@@ -433,6 +461,13 @@ remove_network() {
 
 recreate_machine() {
     # 1 - job file
+    local vlans
+    local eth
+    local fst
+    local snd
+    local machine
+    local location
+    local node
 
     cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
     vlans=$(tail -n +2 "$1")
@@ -479,6 +514,10 @@ ip route add 10.1.8.0/24 dev eno2"
 
 recreate_vlan() {
     # 1 - job file
+    local ext_vlan
+    local node_nancy
+    local node_lille
+
     ext_vlan=$(echo "$1" | cut -d '_' -f 2)
 
     rm "$1"
@@ -509,6 +548,8 @@ recreate_vlan() {
 
 clear() {
     # goal of this is to delete all active resources
+    local job_id
+    local location
 
     cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
 
