@@ -183,9 +183,11 @@ reserve_job() {
                     -d "{\"resources\":\"{eth_count>=$5}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ubuntu1804-x64-min -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
 
     nodeid=$(echo "$node_result" | jq '.uid')
+    touch "$CONFIG_DIR/node_$1_${nodeid}_$5"
     loginfo "Reserved node in $1 (Job ID $nodeid)"
     wait_for_node "$1" "$nodeid"
     node_name=$(get_node_name "$1" "$nodeid")
+    echo "$node_name" > "$CONFIG_DIR/node_$1_${nodeid}_$5"
     loginfo "Got machine $node_name in $1 (Job ID $nodeid)"
 
     loginfo "Setting up vlan $3 for machine $node_name"
@@ -195,7 +197,6 @@ reserve_job() {
 
     loginfo "Setting up machine $node_name"
     wait_for_environment "$node_name"
-    echo "$node_name" > "$CONFIG_DIR/node_$1_${nodeid}_$5"
 }
 
 vlan_manager() {
@@ -255,6 +256,7 @@ reserve_vlan() {
                         -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$2\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$2\"}" | jq '.uid')
 
     loginfo "Reserved VLAN in $1 (Job ID $vlan_job_id)"
+    touch "$CONFIG_DIR/vlan_$2_$1_$vlan_job_id"
     wait_for_node "$1" "$vlan_job_id"
 
     vlan_id=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$1"/internal/oarapi/jobs/"$vlan_job_id"/resources.json | jq '.items[0].vlan' | xargs)
