@@ -253,19 +253,25 @@ network_machine() {
     # 1 - machine name
     # 2 - interface name / none for eno0, eth1 for eno2
     # 3 - external domain vlan id
+    local machine
+    local location
+    local kavlan_id
 
     loginfo "Connecting machine $1 $2 to vlan $3..."
 
     cd "$CONFIG_DIR" || logerror "Machines have not yet been created, aborting..."
 
-    file=$(ls "$CONFIG_DIR" | grep "vlan_$3")
-    kavlan_id=$(cat "$file")
+    if ! stat -- *"vlan_$3"* > /dev/null 2>&1
+    then
+        logerror "VLAN $3 does not exist yet or has been deleted, aborting..."
+    fi
+    kavlan_id=$(cat -- *"vlan_$3"*)
 
     location=$(echo "$1" | cut -d '.' -f 2)
     machine=$(echo "$1" | cut -d '.' -f 1)
 
-    machine_file=$(ls "$CONFIG_DIR" | grep "node_$location*" | head -n 1)
-    echo "$3" >> "$CONFIG_DIR/$machine_file"
+    local machine_file=(node_"$location"*)
+    echo "$3" >> "$CONFIG_DIR/${machine_file[0]}"
 
     if [ -n "$2" ]
     then
@@ -284,8 +290,9 @@ network_machine() {
 get_node() {
     # 1 - location
     # returns the node name allocated in this location
-    node=$(ls "$CONFIG_DIR" | grep "node_$1" | head -n 1)
-    head -n 1 < "$CONFIG_DIR/$node"
+    local nfile
+    nfile=(node_"$1"*)
+    head -n 1 < "$CONFIG_DIR/${nfile[0]}"
 }
 
 setup() {
@@ -401,14 +408,15 @@ delete_job() {
 remove_network() {
     # 1 - machine
     # 2 - interface
+    local location
+    local machine
+
     loginfo "Removing network from machine $1"
 
     cd "$CONFIG_DIR" || logerror "Machines have not yet been created, aborting..."
 
     location=$(echo "$1" | cut -d '.' -f 2)
     machine=$(echo "$1" | cut -d '.' -f 1)
-
-    machine_file=$(ls "$CONFIG_DIR" | grep "node_$location*" | head -n 1)
 
     if [ -n "$2" ]
     then
