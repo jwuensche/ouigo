@@ -360,7 +360,7 @@ get_cron() {
         start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$location"/internal/oarapi/jobs/"$job_id".json | jq '.start_time')
         extend=$(echo "$start" - 540 | bc)
         minute=$(date --date "@$extend" +"%M")
-        echo "$minute * * * * export USER=$USER && /home/$USER/ouigo extend $job_id $location >> $CONFIG_DIR/log" >> "$tmp"
+        echo "$minute * * * * export USER=$USER && bash /home/$USER/ouigo extend $job_id $location >> $CONFIG_DIR/log" >> "$tmp"
     done
 
     for v in vlan_*
