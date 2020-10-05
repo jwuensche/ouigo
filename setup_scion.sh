@@ -425,7 +425,7 @@ extend_job() {
         loginfo "Reserving new job..."
 
         cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
-        job_file="$(echo -- *"$1"*)"
+        job_file="*${1}*"
 
         if ! stat "$job_file" > /dev/null 2>&1
         then
