@@ -205,6 +205,7 @@ vlan_manager() {
     local locations
     local vlan_id
     local kvl
+    local rem
 
     locations="lille
 nancy
@@ -241,21 +242,43 @@ sophia"
         loginfo "New vlan location found, setting up..."
         reserve_vlan "$(echo "$locations" | sort -R | head -n 1)" "$1"
     else
-        logerror "No locations left to populate, abort.."
+        logwarn "No optimal vlan location found. Compromising with a longer waiting time. It could take some time until this becomes ready..."
+        # this is a hack to use the gnu sort, make this nicer if you want
+        rem=$(for f in *BLACKLISTED*; do echo "$f"; done | sort -R | head -n 1 | cut -d '_' -f 3)
+        if [ -z "$rem" ]
+        then
+            logerror "No locations left to populate, reduce the amount of required vlans, aborting..."
+        fi
+        reserve_vlan "$rem" "$1" 1
     fi
 }
 
 reserve_vlan() {
     # 1 - job location
     # 2 - external domain vlan id
+    # 3 - skip availability check
     local vlan_job_id
     local vlan_id
+    local start
+    local time_to
    
     vlan_job_id=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
                         -X POST -H 'Content-Type: application/json' \
                         -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$2\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$2\"}" | jq '.uid')
 
+    start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$1"/internal/oarapi/jobs/"$vlan_job_id".json | jq '.scheduled_start')
     loginfo "Reserved VLAN in $1 (Job ID $vlan_job_id)"
+    time_to=$(echo "$start" - "$(date +'%s')" | bc)
+    # Check if reservations is scheduled to start in the next 5 minutes or if the check should be skipped
+    if [ "$time_to" -gt 300 ] && [ -z "$3" ]
+    then
+        loginfo "Reservation in $1 for VLAN $2 takes to long, switching sites"
+        delete_job "$vlan_job_id" "$1"
+        touch "$CONFIG_DIR/vlan_$2_$1_${vlan_job_id}_BLACKLISTED"
+        vlan_manager "$2"
+        rm "$CONFIG_DIR/vlan_$2_$1_${vlan_job_id}_BLACKLISTED"
+    fi
+
     touch "$CONFIG_DIR/vlan_$2_$1_$vlan_job_id"
     wait_for_node "$1" "$vlan_job_id"
 
@@ -371,7 +394,7 @@ get_cron() {
         start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$location"/internal/oarapi/jobs/"$job_id".json | jq '.start_time')
         extend=$(echo "$start" - 540 | bc)
         minute=$(date --date "@$extend" +"%M")
-        echo "$minute * * * * export USER=$USER && /home/$USER/ouigo extend $job_id $location >> $CONFIG_DIR/log" >> "$tmp"
+        echo "$minute * * * * export USER=$USER && bash bash /home/$USER/ouigo extend $job_id $location >> $CONFIG_DIR/log" >> "$tmp"
     done
 
     loginfo "Writing crontabs via crontab..."
