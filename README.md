@@ -12,20 +12,25 @@ This script is intended to be executed in the Grid5000 intranet. You'll need you
 
 > TODO: this script can also be modified to work outside of grid5000 but we have to authenticate against the Grid5000 API instead
 
-Once you made sure everything works with your account, copy this script into a site in g5k e.g. lille
+Once you made sure everything works with your account try running the script:
 ```bash
-scp setup_scion.sh _username_@access.grid5000.fr:lille
+$ ./ouigo info -u your-username
 ```
 
-Then connect to your site
-```bash
-ssh -J _username_@access.grid5000.fr  _username_@lille.grid5000.fr
-```
+To setup the deployment, run:
 
-And execute the script there
 ```bash
-bash setup_scion.sh
+$ ./ouigo setup -u your-username
 ```
 
 It takes some time until this is completed, after it is finished you have two machines in Grid5000 in Nancy and Lille which both have a scionlab user
 configured and connection to the GTS VLAN.
+
+## Configuration File
+
+To prevent specifying the access location and username everytime you run `ouigo`, you can create a `ouigo.conf` configuration file in your current directory. The file may look like this:
+
+```conf
+OUIGO_G5K_USERNAME=dvader
+OUIGO_G5K_ACCESS_LOCATION=nancy
+```

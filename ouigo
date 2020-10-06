@@ -1,18 +1,133 @@
 #!/bin/bash
 
+# saner programming env: these switches turn some bugs into errors
+set -o errexit -o pipefail -o nounset
+
+# prevents errors when glob's cannot be expanded
+shopt -s nullglob
+
+# shellcheck disable=SC2152
+! getopt --test > /dev/null
+if [[ ${PIPESTATUS[0]} -ne 4 ]]
+then
+    echo "I'm sorry, \`getopt --test\` failed in this environment."
+    exit 1
+fi
+
 CACHE_DIR="${HOME}/.cache/g5k"
+OUIGO_CONFIG_FILE="./ouigo.conf"
 
 help() {
-    echo -e "ouigo - distributing jobs on a budget
+    echo -e "$0 - run long taking jobs on the Grid5000 default queue
 
-Available subcommands:
-  setup - runs the initial setup of all jobs on sites
-  extend - extends the reservation of a job id on a location
-  cron - generate crontab to automatically extend active jobs
-  info - displays information about the current reservations
-  clear - remove active crontab and cancel jobs
-  help - shows this message
-"
+Available options:
+  -c, --configfile  specify the configuration file location
+                    (default: ouigo.conf)
+  -u, --username    override the Grid5000 username from the config file
+  -l, --location    override the Grid5000 access location from the config file
+  -h, --help        show this message
+
+Available actions:
+  setup    runs the initial setup of all jobs on sites
+  info     displays information about the current reservations
+  clear    remove active crontab and cancel jobs
+
+Configuration file:
+  The ouigo configuration file is a standard UNIX conf file in the form
+    VARIABLE=VALUE
+
+Available configuration variables:
+  OUIGO_G5K_ACCESS_LOCATION  the Grid5000 access location (default: lille)
+  OUIGO_G5K_USERNAME         the Grid5000 username used for SSH access
+                             (no default)
+
+Copyright (c) 2020 - Johannes Wünsche, Fin Christensen"
+}
+
+parse_cli_args() {
+    OPTIONS="hc:u:l:"
+    LONGOPTS="help,configfile:,username:,location:"
+
+    # shellcheck disable=SC2152
+    ! PARSED=$(getopt --options="${OPTIONS}" --longoptions="${LONGOPTS}" --name "$0" -- "$@")
+
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]
+    then
+        # e.g. return value is 1
+        #  then getopt has complained about wrong arguments to stdout
+        exit 2
+    fi
+
+    # read getopt's output this way to handle the quoting right:
+    eval set -- "${PARSED}"
+
+    # now enjoy the options in order and nicely split until we see --
+    while true; do
+        case "$1" in
+            -h|--help)
+                help
+                exit
+                ;;
+            -c|--configfile)
+                OUIGO_CONFIG_FILE="$2"
+                shift 2
+                ;;
+            -u|--username)
+                OUIGO_G5K_USERNAME="$2"
+                shift 2
+                ;;
+            -l|--location)
+                OUIGO_G5K_ACCESS_LOCATION="$2"
+                shift 2
+                ;;
+            --)
+                shift
+                break
+                ;;
+            *)
+                echo "Programming error"
+                exit 3
+                ;;
+        esac
+    done
+
+    # handle non-option arguments
+    if [[ $# -lt 1 ]]; then
+        echo "$0: An action is required. Use \`--help\` for more info!"
+        exit 4
+    fi
+
+    OUIGO_ACTION="$1"
+    OUIGO_EXTEND_JOBID="${2:-}"
+    OUIGO_EXTEND_LOCATION="${3:-}"
+}
+
+set_if_undefined() {
+    eval export "$1=\${$1:-}"
+
+    if [[ -z "${!1}" ]]
+    then
+        export "$1=$2"
+    fi
+}
+
+parse_config_file() {
+    if [[ ! -r "${OUIGO_CONFIG_FILE}" ]]
+    then
+        logwarn "The configuration file \`${OUIGO_CONFIG_FILE}\` does not exist or you do not have permission to read it!"
+        logwarn "Continuing without configuration file..."
+    else
+        IFS="="
+        while read -r name value
+        do
+            set_if_undefined "${name}" "${value}"
+        done < "${OUIGO_CONFIG_FILE}"
+    fi
+}
+
+load_default_config() {
+    set_if_undefined OUIGO_G5K_ACCESS_LOCATION lille
+    set_if_undefined OUIGO_G5K_USERNAME ""
 }
 
 __log__ () {
@@ -56,13 +171,13 @@ Have a check on the availability on the referenced clusters and try again."
 
 __spin__() {
     local i=0
-    local sp='🕛🕐🕑🕒🕓🕔🕕🕖🕗🕘🕙🕚'
+    local sp='⠇ ⡆ ⣄ ⣀⡀⢀⣀ ⣠ ⢰ ⠸ ⠙⠈⠉⠉⠁⠋ '
     local n=${#sp}
     printf '  '
     sleep 0.2
     while true
     do
-        printf '\b\b%s' "${sp:i++%n:1}"
+        printf '\b\b%s' "${sp:(i+=2)%n:2}"
         sleep 0.1
     done
 }
@@ -176,7 +291,7 @@ reserve_job() {
     local node_result
     local nodeid
     local node_name
-   
+
     # Get nodes and check availability there is a dummy `sleep infinity` command to keep the job alive
     # the $OAR_NODEFILE has to be evaluated on the machine itself, so disregard the shellcheck warning here
     node_result=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
@@ -217,13 +332,13 @@ lyon
 grenoble
 sophia"
 
-    cd "${CACHE_DIR}" || logerror "Machines have not yet been created, aborting..."
+    cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "Machines have not yet been created, aborting..."
 
     # Check if VLAN already in use
     for vlan in *vlan*
     do
         vlan_id=$(echo "${vlan}" | cut -d '_' -f 2)
-        if [ "${vlan_id}" == "$1" ]
+        if [[ "${vlan_id}" == "$1" ]]
         then
             kvl=$(cat "${vlan}")
             loginfo "VLAN ID $1 is already assigned to kavlan ${kvl}. Skipping..."
@@ -238,7 +353,7 @@ sophia"
         locations=$(echo "${locations}" | grep -v "${location}")
     done
 
-    if [ "$(echo "${locations}" | wc -l)" -gt 0 ]
+    if [[ "$(echo "${locations}" | wc -l)" -gt 0 ]]
     then
         loginfo "New vlan location found, setting up..."
         reserve_vlan "$(echo "${locations}" | sort -R | head -n 1)" "$1"
@@ -246,7 +361,7 @@ sophia"
         logwarn "No optimal vlan location found. Compromising with a longer waiting time. It could take some time until this becomes ready..."
         # this is a hack to use the gnu sort, make this nicer if you want
         rem=$(for f in *BLACKLISTED*; do echo "${f}"; done | sort -R | head -n 1 | cut -d '_' -f 3)
-        if [ -z "${rem}" ]
+        if [[ -z "${rem}" ]]
         then
             logerror "No locations left to populate, reduce the amount of required vlans, aborting..."
         fi
@@ -271,7 +386,7 @@ reserve_vlan() {
     loginfo "Reserved VLAN in $1 (Job ID ${vlan_job_id})"
     time_to=$(echo "${start}" - "$(date +'%s')" | bc)
     # Check if reservations is scheduled to start in the next 5 minutes or if the check should be skipped
-    if [ "${time_to}" -gt 300 ] && [ -z "$3" ]
+    if [[ "${time_to}" -gt 300 ]] && [[ -z "$3" ]]
     then
         loginfo "Reservation in $1 for VLAN $2 takes to long, switching sites"
         delete_job "${vlan_job_id}" "$1"
@@ -298,7 +413,7 @@ network_machine() {
 
     loginfo "Connecting machine $1 $2 to vlan $3..."
 
-    cd "${CACHE_DIR}" || logerror "Machines have not yet been created, aborting..."
+    cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "Machines have not yet been created, aborting..."
 
     if ! stat -- *"vlan_$3"* > /dev/null 2>&1
     then
@@ -312,7 +427,7 @@ network_machine() {
     local machine_file=(node_"${location}"*)
     echo "$3" >> "${CACHE_DIR}/${machine_file[0]}"
 
-    if [ -n "$2" ]
+    if [[ -n "$2" ]]
     then
         add_req="{\"nodes\":[\"${machine}-$2.${location}.grid5000.fr\"]}"
     else
@@ -332,6 +447,12 @@ get_node() {
     local nfile
     nfile=(node_"$1"*)
     head -n 1 < "${CACHE_DIR}/${nfile[0]}"
+}
+
+location_has_nodes() {
+    local nfile
+    nfile=(node_"$1"*)
+    test "${#nfile[@]}" -gt 0
 }
 
 setup() {
@@ -370,7 +491,7 @@ get_cron() {
     local extend
     local minute
 
-    cd "${CACHE_DIR}" || logerror "No machines have been setup yet"
+    cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "No machines have been setup yet"
 
     tmp=$(mktemp)
 
@@ -419,13 +540,13 @@ extend_job() {
     res=$(curl -s -X POST "https://api.grid5000.fr/stable/sites/$2/internal/oarapi/jobs/$1.json" -H 'Content-Type: application/json' -d "${req}")
 
     acc=$(echo "${res}" | jq '.status' | xargs)
-    if [ "${acc}" != "Accepted" ]
+    if [[ "${acc}" != "Accepted" ]]
     then
         logwarn "Could not extend reservation of job $1"
         logwarn "$(echo "${res}" | jq '.cmd_output')"
         loginfo "Reserving new job..."
 
-        cd "${CACHE_DIR}" || logerror "No machines have been setup yet"
+        cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "No machines have been setup yet"
         # use find here since glob extension does not resolve to the desired file
         job_file=$(find . -name "*${1}*")
 
@@ -434,7 +555,7 @@ extend_job() {
             logerror "Job $1 in $2 is alreading being reacquistioned, aborting..."
         fi
 
-        if [ "$(echo "${job_file}" | grep -c node)" == 1 ]
+        if [[ "$(echo "${job_file}" | grep -c node)" == 1 ]]
         then
             name="$(head -n 1 < "${job_file}")"
             # ssh root@"$name" tgz-g5k > "job_$1.tgz"
@@ -468,12 +589,12 @@ remove_network() {
 
     loginfo "Removing network from machine $1"
 
-    cd "${CACHE_DIR}" || logerror "Machines have not yet been created, aborting..."
+    cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "Machines have not yet been created, aborting..."
 
     location=$(echo "$1" | cut -d '.' -f 2)
     machine=$(echo "$1" | cut -d '.' -f 1)
 
-    if [ -n "$2" ]
+    if [[ -n "$2" ]]
     then
         add_req="{\"nodes\":[\"${machine}-$2.${location}.grid5000.fr\"]}"
     else
@@ -496,7 +617,7 @@ recreate_machine() {
     local location
     local node
 
-    cd "${CACHE_DIR}" || logerror "No machines have been setup yet"
+    cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "No machines have been setup yet"
     vlans=$(tail -n +2 "$1")
     eth=$(echo "$1" | cut -d '_' -f 4)
 
@@ -506,7 +627,7 @@ recreate_machine() {
     location=$(echo "$1" | cut -d '_' -f 2)
     # jobid=$(echo "$1" | cut -d '_' -f 3)
 
-    if [ "${location}" == "nancy" ]
+    if [[ "${location}" == "nancy" ]]
     then
       remove_network "${machine}" "eth1"
       remove_network "${machine}" "eth2"
@@ -523,7 +644,7 @@ recreate_machine() {
 
     node=$(get_node "${location}")
 
-    if [ "${location}" == "nancy" ]
+    if [[ "${location}" == "nancy" ]]
     then
         network_machine "${node}" "eth1" 1293
         network_machine "${node}" "eth2" 1391
@@ -578,7 +699,9 @@ clear() {
     local job_id
     local location
 
-    cd "${CACHE_DIR}" || logerror "No machines have been setup yet"
+    cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "No machines have been setup yet"
+
+    loginfo "Looking for running machines..."
 
     # Extend the machine reservation, if not possible then switch to another machine
     # example for machine name: node_nancy_1234567
@@ -590,6 +713,8 @@ clear() {
         curl -s -X DELETE "https://api.grid5000.fr/3.0/sites/${location}/jobs/${job_id}"
     done
 
+    loginfo "Looking for running vlans..."
+
     for v in vlan_*
     do
         job_id=$(echo "${v}" | cut -d '_' -f 4)
@@ -598,13 +723,16 @@ clear() {
         curl -s -X DELETE "https://api.grid5000.fr/3.0/sites/${location}/jobs/${job_id}"
     done
 
+    loginfo "Deleting crontab"
+    crontab -r > /dev/null 2>&1 || true # don't care if this fails
+
+    loginfo "Removing cache"
     rm -rf "${CACHE_DIR}"
-    crontab -r
 }
 
 display_info() {
-    cd "${CACHE_DIR}" || logerror "Deployment not yet started, aborting..."
-    local locations
+    cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "Deployment not yet started, aborting..."
+    local locations=""
 
     for vlan in *vlan*
     do
@@ -614,29 +742,62 @@ display_info() {
     done
 
     echo -ne "Deployment is running, with the following nodes:
-    Machine in Lille: $(get_node lille)
-    Machine in Nancy: $(get_node nancy)
+    Machine in Lille: $(location_has_nodes lille && get_node lille)
+    Machine in Nancy: $(location_has_nodes nancy && get_node nancy)
     VLANs in the following locations: ${locations}
 "
 }
 
-case "$1" in
-    "setup")
+is_running_on_g5k() {
+    test -d /etc/grid5000
+}
+
+ensure_running_on_g5k() {
+    if ! is_running_on_g5k
+    then
+        if [[ -z "${OUIGO_G5K_USERNAME}" ]]
+        then
+            logerror "This script is not executed from within Grid5000 and no Grid5000 username is specified via configuration file, command-line argument, or environment variable!"
+        fi
+
+        loginfo "Not running on a Grid5000 machine, copying workspace and logging in..."
+
+        scp "$0" "${OUIGO_G5K_USERNAME}@access.grid5000.fr:${OUIGO_G5K_ACCESS_LOCATION}"
+
+        if [[ -r "${OUIGO_CONFIG_FILE}" ]]
+        then
+            scp "${OUIGO_CONFIG_FILE}" "${OUIGO_G5K_USERNAME}@access.grid5000.fr:${OUIGO_G5K_ACCESS_LOCATION}"
+        fi
+
+        ssh -J "${OUIGO_G5K_USERNAME}@access.grid5000.fr" \
+            "${OUIGO_G5K_USERNAME}@${OUIGO_G5K_ACCESS_LOCATION}.grid5000.fr" \
+            bash ./ouigo "$@"
+        exit "$?"
+    fi
+
+}
+
+parse_cli_args "$@"
+parse_config_file
+load_default_config
+
+ensure_running_on_g5k "$@"
+
+case "${OUIGO_ACTION}" in
+    setup)
         setup
         ;;
-    "extend")
-        extend_job "$2" "$3"
+    extend)
+        # used within the crontabs
+        extend_job "${OUIGO_EXTEND_JOBID}" "${OUIGO_EXTEND_LOCATION}"
         ;;
-    "cron")
-        get_cron
-        ;;
-    "info")
+    info)
         display_info
         ;;
-    "clear")
+    clear)
         clear
         ;;
     *)
-        help
+        echo "$0: Invalid action \`${OUIGO_ACTION}\`. Use \`--help\` to see a list of available actions!"
         ;;
 esac
