@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CONFIG_DIR="$HOME/.cache/g5k"
+CACHE_DIR="${HOME}/.cache/g5k"
 
 help() {
     echo -e "ouigo - distributing jobs on a budget
@@ -75,7 +75,7 @@ spin() {
             SPIN_PID="$!"
         ;;
         stop)
-            kill "$SPIN_PID"
+            kill "${SPIN_PID}"
         ;;
         *)
             logwarn "Unknown spinner command \`$1\`!"
@@ -96,18 +96,18 @@ wait_for_node() {
     do
         sleep 5
         state=$(curl -s -X GET "https://api.grid5000.fr/3.0/sites/$1/jobs/$2" | jq '.state')
-        case "$state" in
+        case "${state}" in
             '"running"')
                 spin stop
                 echo
                 break
                 ;;
-            "$prev_state")
+            "${prev_state}")
                 ;;
             *)
-                prev_state="$state"
+                prev_state="${state}"
                 echo
-                loginfo "Current state is $state"
+                loginfo "Current state is ${state}"
                 loginfo -n "Job was not ready, waiting more...   "
                 ;;
         esac
@@ -183,21 +183,21 @@ reserve_job() {
                     -X POST -H 'Content-Type: application/json' \
                     -d "{\"resources\":\"{eth_count>=$5}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ubuntu1804-x64-min -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
 
-    nodeid=$(echo "$node_result" | jq '.uid')
-    touch "$CONFIG_DIR/node_$1_${nodeid}_$5"
-    loginfo "Reserved node in $1 (Job ID $nodeid)"
-    wait_for_node "$1" "$nodeid"
-    node_name=$(get_node_name "$1" "$nodeid")
-    echo "$node_name" > "$CONFIG_DIR/node_$1_${nodeid}_$5"
-    loginfo "Got machine $node_name in $1 (Job ID $nodeid)"
+    nodeid=$(echo "${node_result}" | jq '.uid')
+    touch "${CACHE_DIR}/node_$1_${nodeid}_$5"
+    loginfo "Reserved node in $1 (Job ID ${nodeid})"
+    wait_for_node "$1" "${nodeid}"
+    node_name=$(get_node_name "$1" "${nodeid}")
+    echo "${node_name}" > "${CACHE_DIR}/node_$1_${nodeid}_$5"
+    loginfo "Got machine ${node_name} in $1 (Job ID ${nodeid})"
 
-    loginfo "Setting up vlan $3 for machine $node_name"
+    loginfo "Setting up vlan $3 for machine ${node_name}"
     vlan_manager "$3"
     loginfo "Setting up vlan $4 for machines"
     vlan_manager "$4"
 
-    loginfo "Setting up machine $node_name"
-    wait_for_environment "$node_name"
+    loginfo "Setting up machine ${node_name}"
+    wait_for_environment "${node_name}"
 }
 
 vlan_manager() {
@@ -217,16 +217,16 @@ lyon
 grenoble
 sophia"
 
-    cd "$CONFIG_DIR" || logerror "Machines have not yet been created, aborting..."
+    cd "${CACHE_DIR}" || logerror "Machines have not yet been created, aborting..."
 
     # Check if VLAN already in use
     for vlan in *vlan*
     do
-        vlan_id=$(echo "$vlan" | cut -d '_' -f 2)
-        if [ "$vlan_id" == "$1" ]
+        vlan_id=$(echo "${vlan}" | cut -d '_' -f 2)
+        if [ "${vlan_id}" == "$1" ]
         then
-            kvl=$(cat "$vlan")
-            loginfo "VLAN ID $1 is already assigned to kavlan $kvl. Skipping..."
+            kvl=$(cat "${vlan}")
+            loginfo "VLAN ID $1 is already assigned to kavlan ${kvl}. Skipping..."
             return 1
         fi
     done
@@ -234,23 +234,23 @@ sophia"
     # Filter out already used locations
     for location in *vlan*
     do
-        location=$(echo "$location" | cut -d '_' -f 3)
-        locations=$(echo "$locations" | grep -v "$location")
+        location=$(echo "${location}" | cut -d '_' -f 3)
+        locations=$(echo "${locations}" | grep -v "${location}")
     done
 
-    if [ "$(echo "$locations" | wc -l)" -gt 0 ]
+    if [ "$(echo "${locations}" | wc -l)" -gt 0 ]
     then
         loginfo "New vlan location found, setting up..."
-        reserve_vlan "$(echo "$locations" | sort -R | head -n 1)" "$1"
+        reserve_vlan "$(echo "${locations}" | sort -R | head -n 1)" "$1"
     else
         logwarn "No optimal vlan location found. Compromising with a longer waiting time. It could take some time until this becomes ready..."
         # this is a hack to use the gnu sort, make this nicer if you want
-        rem=$(for f in *BLACKLISTED*; do echo "$f"; done | sort -R | head -n 1 | cut -d '_' -f 3)
-        if [ -z "$rem" ]
+        rem=$(for f in *BLACKLISTED*; do echo "${f}"; done | sort -R | head -n 1 | cut -d '_' -f 3)
+        if [ -z "${rem}" ]
         then
             logerror "No locations left to populate, reduce the amount of required vlans, aborting..."
         fi
-        reserve_vlan "$rem" "$1" 1
+        reserve_vlan "${rem}" "$1" 1
     fi
 }
 
@@ -262,30 +262,30 @@ reserve_vlan() {
     local vlan_id
     local start
     local time_to
-   
-    vlan_job_id=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
+
+    vlan_job_id=$(curl -s "https://api.grid5000.fr/3.0/sites/$1/jobs" \
                         -X POST -H 'Content-Type: application/json' \
                         -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$2\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$2\"}" | jq '.uid')
 
-    start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$1"/internal/oarapi/jobs/"$vlan_job_id".json | jq '.scheduled_start')
-    loginfo "Reserved VLAN in $1 (Job ID $vlan_job_id)"
-    time_to=$(echo "$start" - "$(date +'%s')" | bc)
+    start=$(curl -s -X GET "https://api.grid5000.fr/stable/sites/$1/internal/oarapi/jobs/${vlan_job_id}.json" | jq '.scheduled_start')
+    loginfo "Reserved VLAN in $1 (Job ID ${vlan_job_id})"
+    time_to=$(echo "${start}" - "$(date +'%s')" | bc)
     # Check if reservations is scheduled to start in the next 5 minutes or if the check should be skipped
-    if [ "$time_to" -gt 300 ] && [ -z "$3" ]
+    if [ "${time_to}" -gt 300 ] && [ -z "$3" ]
     then
         loginfo "Reservation in $1 for VLAN $2 takes to long, switching sites"
-        delete_job "$vlan_job_id" "$1"
-        touch "$CONFIG_DIR/vlan_$2_$1_${vlan_job_id}_BLACKLISTED"
+        delete_job "${vlan_job_id}" "$1"
+        touch "${CACHE_DIR}/vlan_$2_$1_${vlan_job_id}_BLACKLISTED"
         vlan_manager "$2"
-        rm "$CONFIG_DIR/vlan_$2_$1_${vlan_job_id}_BLACKLISTED"
+        rm "${CACHE_DIR}/vlan_$2_$1_${vlan_job_id}_BLACKLISTED"
     fi
 
-    touch "$CONFIG_DIR/vlan_$2_$1_$vlan_job_id"
-    wait_for_node "$1" "$vlan_job_id"
+    touch "${CACHE_DIR}/vlan_$2_$1_${vlan_job_id}"
+    wait_for_node "$1" "${vlan_job_id}"
 
-    vlan_id=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$1"/internal/oarapi/jobs/"$vlan_job_id"/resources.json | jq '.items[0].vlan' | xargs)
+    vlan_id=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$1"/internal/oarapi/jobs/"${vlan_job_id}"/resources.json | jq '.items[0].vlan' | xargs)
 
-    echo "$vlan_id" > "$CONFIG_DIR/vlan_$2_$1_$vlan_job_id"
+    echo "${vlan_id}" > "${CACHE_DIR}/vlan_$2_$1_${vlan_job_id}"
 }
 
 network_machine() {
@@ -298,7 +298,7 @@ network_machine() {
 
     loginfo "Connecting machine $1 $2 to vlan $3..."
 
-    cd "$CONFIG_DIR" || logerror "Machines have not yet been created, aborting..."
+    cd "${CACHE_DIR}" || logerror "Machines have not yet been created, aborting..."
 
     if ! stat -- *"vlan_$3"* > /dev/null 2>&1
     then
@@ -309,21 +309,21 @@ network_machine() {
     location=$(echo "$1" | cut -d '.' -f 2)
     machine=$(echo "$1" | cut -d '.' -f 1)
 
-    local machine_file=(node_"$location"*)
-    echo "$3" >> "$CONFIG_DIR/${machine_file[0]}"
+    local machine_file=(node_"${location}"*)
+    echo "$3" >> "${CACHE_DIR}/${machine_file[0]}"
 
     if [ -n "$2" ]
     then
-        add_req="{\"nodes\":[\"$machine-$2.$location.grid5000.fr\"]}"
+        add_req="{\"nodes\":[\"${machine}-$2.${location}.grid5000.fr\"]}"
     else
-        add_req="{\"nodes\":[\"$machine.$location.grid5000.fr\"]}"
+        add_req="{\"nodes\":[\"${machine}.${location}.grid5000.fr\"]}"
     fi
 
-    loginfo "Request node: $add_req"
-    loginfo "URL: https://api.grid5000.fr/stable/sites/$location/vlans/$kavlan_id"
-    loginfo "Connecting to kavlan id: $kavlan_id"
+    loginfo "Request node: ${add_req}"
+    loginfo "URL: https://api.grid5000.fr/stable/sites/${location}/vlans/${kavlan_id}"
+    loginfo "Connecting to kavlan id: ${kavlan_id}"
 
-    curl -s -d "$add_req" -X POST https://api.grid5000.fr/stable/sites/"$location"/vlans/"$kavlan_id" > /dev/null
+    curl -s -d "${add_req}" -X POST "https://api.grid5000.fr/stable/sites/${location}/vlans/${kavlan_id}" > /dev/null
 }
 
 get_node() {
@@ -331,15 +331,15 @@ get_node() {
     # returns the node name allocated in this location
     local nfile
     nfile=(node_"$1"*)
-    head -n 1 < "$CONFIG_DIR/${nfile[0]}"
+    head -n 1 < "${CACHE_DIR}/${nfile[0]}"
 }
 
 setup() {
     local node_nancy
     local node_lille
 
-    rm -rf "$CONFIG_DIR"
-    mkdir -p "$CONFIG_DIR"
+    rm -rf "${CACHE_DIR}"
+    mkdir -p "${CACHE_DIR}"
 
     reserve_job nancy gros 1293 1391 4
     reserve_job lille chiclet 1294 1390 2
@@ -347,17 +347,17 @@ setup() {
     node_nancy=$(get_node nancy)
     node_lille=$(get_node lille)
 
-    network_machine "$node_lille" "eth1" 1390
+    network_machine "${node_lille}" "eth1" 1390
     # Set up the eno2 interface of lille before disconnecting it from g5k
-    ssh root@"$node_lille" "ip addr add 10.1.8.7 dev eno2
+    ssh "root@${node_lille}" "ip addr add 10.1.8.7 dev eno2
 ip link set dev eno2 up
 sleep 1
 ip route add 10.1.8.0/24 dev eno2"
 
-    network_machine "$node_lille" "" 1294
-    network_machine "$node_nancy" "eth1" 1293
-    network_machine "$node_nancy" "eth2" 1391
-    network_machine "$node_nancy" "eth3" 1390
+    network_machine "${node_lille}" "" 1294
+    network_machine "${node_nancy}" "eth1" 1293
+    network_machine "${node_nancy}" "eth2" 1391
+    network_machine "${node_nancy}" "eth3" 1390
     get_cron
 }
 
@@ -370,7 +370,7 @@ get_cron() {
     local extend
     local minute
 
-    cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
+    cd "${CACHE_DIR}" || logerror "No machines have been setup yet"
 
     tmp=$(mktemp)
 
@@ -378,28 +378,28 @@ get_cron() {
     # example for machine name: node_nancy_1234567
     for m in node_*
     do
-        job_id=$(echo "$m" | cut -d '_' -f 3)
-        location=$(echo "$m" | cut -d '_' -f 2)
+        job_id=$(echo "${m}" | cut -d '_' -f 3)
+        location=$(echo "${m}" | cut -d '_' -f 2)
 
-        start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$location"/internal/oarapi/jobs/"$job_id".json | jq '.start_time')
-        extend=$(echo "$start" - 540 | bc)
-        minute=$(date --date "@$extend" +"%M")
-        echo "$minute * * * * export USER=$USER && bash /home/$USER/ouigo extend $job_id $location >> $CONFIG_DIR/log" >> "$tmp"
+        start=$(curl -s -X GET "https://api.grid5000.fr/stable/sites/${location}/internal/oarapi/jobs/${job_id}.json" | jq '.start_time')
+        extend=$(echo "${start}" - 540 | bc)
+        minute=$(date --date "@${extend}" +"%M")
+        echo "${minute} * * * * export USER=${USER} && bash /home/${USER}/ouigo extend ${job_id} ${location} >> ${CACHE_DIR}/log" >> "${tmp}"
     done
 
     for v in vlan_*
     do
-        job_id=$(echo "$v" | cut -d '_' -f 4)
-        location=$(echo "$v" | cut -d '_' -f 3)
+        job_id=$(echo "${v}" | cut -d '_' -f 4)
+        location=$(echo "${v}" | cut -d '_' -f 3)
 
-        start=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$location"/internal/oarapi/jobs/"$job_id".json | jq '.start_time')
-        extend=$(echo "$start" - 540 | bc)
-        minute=$(date --date "@$extend" +"%M")
-        echo "$minute * * * * export USER=$USER && bash /home/$USER/ouigo extend $job_id $location >> $CONFIG_DIR/log" >> "$tmp"
+        start=$(curl -s -X GET "https://api.grid5000.fr/stable/sites/${location}/internal/oarapi/jobs/${job_id}.json" | jq '.start_time')
+        extend=$(echo "${start}" - 540 | bc)
+        minute=$(date --date "@${extend}" +"%M")
+        echo "${minute} * * * * export USER=${USER} && bash /home/${USER}/ouigo extend ${job_id} ${location} >> ${CACHE_DIR}/log" >> "${tmp}"
     done
 
     loginfo "Writing crontabs via crontab..."
-    crontab "$tmp"
+    crontab "${tmp}"
     loginfo "Done"
 }
 
@@ -416,32 +416,32 @@ extend_job() {
 
     loginfo "Prolonging reservation of $1 in $2"
 
-    res=$(curl -s -X POST https://api.grid5000.fr/stable/sites/"$2"/internal/oarapi/jobs/"$1".json -H 'Content-Type: application/json' -d "$req")
+    res=$(curl -s -X POST "https://api.grid5000.fr/stable/sites/$2/internal/oarapi/jobs/$1.json" -H 'Content-Type: application/json' -d "${req}")
 
-    acc=$(echo "$res" | jq '.status' | xargs)
-    if [ "$acc" != "Accepted" ]
+    acc=$(echo "${res}" | jq '.status' | xargs)
+    if [ "${acc}" != "Accepted" ]
     then
         logwarn "Could not extend reservation of job $1"
-        logwarn "$(echo "$res" | jq '.cmd_output')"
+        logwarn "$(echo "${res}" | jq '.cmd_output')"
         loginfo "Reserving new job..."
 
-        cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
+        cd "${CACHE_DIR}" || logerror "No machines have been setup yet"
         # use find here since glob extension does not resolve to the desired file
         job_file=$(find . -name "*${1}*")
 
-        if ! stat "$job_file" > /dev/null 2>&1
+        if ! stat "${job_file}" > /dev/null 2>&1
         then
             logerror "Job $1 in $2 is alreading being reacquistioned, aborting..."
         fi
 
-        if [ "$(echo "$job_file" | grep -c node)" == 1 ]
+        if [ "$(echo "${job_file}" | grep -c node)" == 1 ]
         then
-            name="$(head -n 1 < "$job_file")"
+            name="$(head -n 1 < "${job_file}")"
             # ssh root@"$name" tgz-g5k > "job_$1.tgz"
-            recreate_machine "$job_file"
+            recreate_machine "${job_file}"
             get_cron
         else
-            recreate_vlan "$job_file"
+            recreate_vlan "${job_file}"
             get_cron
         fi
     else
@@ -468,22 +468,22 @@ remove_network() {
 
     loginfo "Removing network from machine $1"
 
-    cd "$CONFIG_DIR" || logerror "Machines have not yet been created, aborting..."
+    cd "${CACHE_DIR}" || logerror "Machines have not yet been created, aborting..."
 
     location=$(echo "$1" | cut -d '.' -f 2)
     machine=$(echo "$1" | cut -d '.' -f 1)
 
     if [ -n "$2" ]
     then
-        add_req="{\"nodes\":[\"$machine-$2.$location.grid5000.fr\"]}"
+        add_req="{\"nodes\":[\"${machine}-$2.${location}.grid5000.fr\"]}"
     else
-        add_req="{\"nodes\":[\"$machine.$location.grid5000.fr\"]}"
+        add_req="{\"nodes\":[\"${machine}.${location}.grid5000.fr\"]}"
     fi
 
-    loginfo "Request node: $add_req"
-    loginfo "URL: https://api.grid5000.fr/stable/sites/$location/vlans/DEFAULT"
+    loginfo "Request node: ${add_req}"
+    loginfo "URL: https://api.grid5000.fr/stable/sites/${location}/vlans/DEFAULT"
 
-    curl -s -d "$add_req" -X POST https://api.grid5000.fr/stable/sites/"$location"/vlans/DEFAULT > /dev/null
+    curl -s -d "${add_req}" -X POST "https://api.grid5000.fr/stable/sites/${location}/vlans/DEFAULT" > /dev/null
 }
 
 recreate_machine() {
@@ -496,46 +496,46 @@ recreate_machine() {
     local location
     local node
 
-    cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
+    cd "${CACHE_DIR}" || logerror "No machines have been setup yet"
     vlans=$(tail -n +2 "$1")
     eth=$(echo "$1" | cut -d '_' -f 4)
 
-    fst=$(echo "$vlans" | sed -n '1p')
-    snd=$(echo "$vlans" | sed -n '2p')
+    fst=$(echo "${vlans}" | sed -n '1p')
+    snd=$(echo "${vlans}" | sed -n '2p')
     machine="$(head -n 1 < "$1")"
     location=$(echo "$1" | cut -d '_' -f 2)
     # jobid=$(echo "$1" | cut -d '_' -f 3)
 
-    if [ "$location" == "nancy" ]
+    if [ "${location}" == "nancy" ]
     then
-      remove_network "$machine" "eth1"
-      remove_network "$machine" "eth2"
-      remove_network "$machine" "eth3"
+      remove_network "${machine}" "eth1"
+      remove_network "${machine}" "eth2"
+      remove_network "${machine}" "eth3"
     else
-      remove_network "$machine" ""
-      remove_network "$machine" "eth1"
+      remove_network "${machine}" ""
+      remove_network "${machine}" "eth1"
     fi
 
-    # delete_job "$jobid" "$location"
+    # delete_job "${jobid}" "${location}"
 
     rm "$1"
-    reserve_job "$location" "" "$fst" "$snd" "$eth"
+    reserve_job "${location}" "" "${fst}" "${snd}" "${eth}"
 
-    node=$(get_node "$location")
+    node=$(get_node "${location}")
 
-    if [ "$location" == "nancy" ]
+    if [ "${location}" == "nancy" ]
     then
-        network_machine "$node" "eth1" 1293
-        network_machine "$node" "eth2" 1391
-        network_machine "$node" "eth3" 1390
+        network_machine "${node}" "eth1" 1293
+        network_machine "${node}" "eth2" 1391
+        network_machine "${node}" "eth3" 1390
     else
-        network_machine "$node" "eth1" 1390
+        network_machine "${node}" "eth1" 1390
         # Set up the eno2 interface of lille before disconnecting it from g5k
-        ssh root@"$node" "ip addr add 10.1.8.7 dev eno2
+        ssh root@"${node}" "ip addr add 10.1.8.7 dev eno2
 ip link set dev eno2 up
 sleep 1
 ip route add 10.1.8.0/24 dev eno2"
-        network_machine "$node" "" 1294
+        network_machine "${node}" "" 1294
     fi
 }
 
@@ -548,27 +548,27 @@ recreate_vlan() {
     ext_vlan=$(echo "$1" | cut -d '_' -f 2)
 
     rm "$1"
-    vlan_manager "$ext_vlan"
+    vlan_manager "${ext_vlan}"
 
     node_nancy=$(get_node nancy)
     node_lille=$(get_node lille)
 
-    case "$ext_vlan" in
+    case "${ext_vlan}" in
         "1390")
-            network_machine "$node_lille" "eth1" 1390
-            network_machine "$node_nancy" "eth3" 1390
+            network_machine "${node_lille}" "eth1" 1390
+            network_machine "${node_nancy}" "eth3" 1390
             ;;
         "1391")
-            network_machine "$node_nancy" "eth2" 1391
+            network_machine "${node_nancy}" "eth2" 1391
             ;;
         "1293")
-            network_machine "$node_nancy" "eth1" 1293
+            network_machine "${node_nancy}" "eth1" 1293
             ;;
         "1294")
-            network_machine "$node_lille" "" 1294
+            network_machine "${node_lille}" "" 1294
             ;;
         *)
-            logerror "VLAN ID $ext_vlan is not recognized. Aborting."
+            logerror "VLAN ID ${ext_vlan} is not recognized. Aborting."
             ;;
     esac
 }
@@ -578,47 +578,45 @@ clear() {
     local job_id
     local location
 
-    cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
+    cd "${CACHE_DIR}" || logerror "No machines have been setup yet"
 
     # Extend the machine reservation, if not possible then switch to another machine
     # example for machine name: node_nancy_1234567
     for m in node_*
     do
-        job_id=$(echo "$m" | cut -d '_' -f 3)
-        location=$(echo "$m" | cut -d '_' -f 2)
-        loginfo "Deleting machine $job_id in $location"
-        curl -s -X DELETE https://api.grid5000.fr/3.0/sites/"$location"/jobs/"$job_id"
+        job_id=$(echo "${m}" | cut -d '_' -f 3)
+        location=$(echo "${m}" | cut -d '_' -f 2)
+        loginfo "Deleting machine ${job_id} in ${location}"
+        curl -s -X DELETE "https://api.grid5000.fr/3.0/sites/${location}/jobs/${job_id}"
     done
 
     for v in vlan_*
     do
-        job_id=$(echo "$v" | cut -d '_' -f 4)
-        location=$(echo "$v" | cut -d '_' -f 3)
-        loginfo "Deleting vlan $job_id in $location"
-        curl -s -X DELETE https://api.grid5000.fr/3.0/sites/"$location"/jobs/"$job_id"
+        job_id=$(echo "${v}" | cut -d '_' -f 4)
+        location=$(echo "${v}" | cut -d '_' -f 3)
+        loginfo "Deleting vlan ${job_id} in ${location}"
+        curl -s -X DELETE "https://api.grid5000.fr/3.0/sites/${location}/jobs/${job_id}"
     done
 
-    rm -rf "$CONFIG_DIR"
+    rm -rf "${CACHE_DIR}"
     crontab -r
 }
 
 display_info() {
-    cd "$CONFIG_DIR" || logerror "Deployment not yet started, aborting..."
+    cd "${CACHE_DIR}" || logerror "Deployment not yet started, aborting..."
     local locations
 
     for vlan in *vlan*
     do
         local loc
-        loc=$(echo "$vlan" | cut -d '_' -f 3)
-        locations="$locations\n     ${loc} ($(cat "$vlan"))"
+        loc=$(echo "${vlan}" | cut -d '_' -f 3)
+        locations="${locations}\n     ${loc} ($(cat "${vlan}"))"
     done
-                
 
-    
     echo -ne "Deployment is running, with the following nodes:
     Machine in Lille: $(get_node lille)
     Machine in Nancy: $(get_node nancy)
-    VLANs in the following locations: $locations
+    VLANs in the following locations: ${locations}
 "
 }
 
