@@ -601,6 +601,26 @@ clear() {
     crontab -r
 }
 
+display_info() {
+    cd "$CONFIG_DIR" || logerror "Deployment not yet started, aborting..."
+    local locations
+
+    for vlan in *vlan*
+    do
+        local loc
+        loc=$(echo "$vlan" | cut -d '_' -f 3)
+        locations="$locations\n     ${loc} ($(cat "$vlan"))"
+    done
+                
+
+    
+    echo -ne "Deployment is running, with the following nodes:
+    Machine in Lille: $(get_node lille)
+    Machine in Nancy: $(get_node nancy)
+    VLANs in the following locations: $locations
+"
+}
+
 case "$1" in
     "setup")
         setup
@@ -610,6 +630,9 @@ case "$1" in
         ;;
     "cron")
         get_cron
+        ;;
+    "info")
+        display_info
         ;;
     "clear")
         clear
