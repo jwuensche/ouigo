@@ -9,6 +9,7 @@ Available subcommands:
   setup - runs the initial setup of all jobs on sites
   extend - extends the reservation of a job id on a location
   cron - generate crontab to automatically extend active jobs
+  info - displays information about the current reservations
   clear - remove active crontab and cancel jobs
   help - shows this message
 "
