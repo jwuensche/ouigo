@@ -425,7 +425,8 @@ extend_job() {
         loginfo "Reserving new job..."
 
         cd "$CONFIG_DIR" || logerror "No machines have been setup yet"
-        job_file="*${1}*"
+        # use find here since glob extension does not resolve to the desired file
+        job_file=$(find . -name "*${1}*")
 
         if ! stat "$job_file" > /dev/null 2>&1
         then
