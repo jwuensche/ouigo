@@ -1,2 +1,4 @@
 OUIGO_G5K_USERNAME=dvader
 OUIGO_G5K_ACCESS_LOCATION=nancy
+OUIGO_SSH_PRIVATE_KEY=./scionlab_rsa
+OUIGO_SSH_PUBLIC_KEY=./scionlab_rsa.pub
