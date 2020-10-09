@@ -284,21 +284,22 @@ tgz-g5k -f /tmp/image.tgz
 
 # default endlocation
 endlocation=frontend
+args=\"\"
 
 # Check for connectivity, atm we cannot connect directly to one machine in lille
 if ! ping -c 1 frontend >/dev/null 2>&1
 then
-    args=\"-o ProxyJump=root@10.1.8.9,jwuensche@frontend\"
+    args=(\"-o ProxyJump=root@10.1.8.9\")
     endlocation=lille
 fi
 
 echo \"Copying image to frontend...\"
 # Make ssh options available, for e.g. identity file
-scp \""'${*}'"\" \""'${args}'\"" /tmp/image.tgz \"jwuensche@"'${endlocation}'":scionlab.tgz\" > /dev/null 2>&1 || exit 1
+scp \""'${args[@]}'"\" /tmp/scionlab.tgz \"${OUIGO_G5K_USERNAME}@'$"'{endlocation}:'"\"
 # Replace old image with new one
-# We need a key for that, gonna use my account for the time being
+# We'll need a key for that, gonna use my account for the time being
 echo \"Refreshing kaenv3 entry...\"
-ssh  \""'${*}'"\" \""'${args}'"\" \"jwuensche@"'${endlocation}'"\" \"kaenv3 -d scionlab > /dev/null 2>&1 || kaenv3 -a scionlab.env\" > /dev/null 2>&1 || exit 1
+ssh \""'${args[@]}'"\" \"${OUIGO_G5K_USERNAME}@"'${endlocation}'"\" \"kaenv3 -d scionlab; kaenv3 -a scionlab.env\"
 echo \"Done.\"
 ' > /usr/bin/backup_image
     chmod +x /usr/bin/backup_image
@@ -820,10 +821,28 @@ recreate_vlan() {
     esac
 }
 
+erase_ssh_keys() {
+    # extracted method to delete all current ssh keys
+    loginfo "Removing deployment key from locations and local session"
+    local locations
+    locations=(nancy lille lyon sophia rennes grenoble luxembourg nantes)
+    for site in "${locations[@]}"
+    do
+        ssh "${OUIGO_G5K_USERNAME}@${site}.grid5000.fr" "stat scionlab.pub >/dev/null 2>&1 && cat .ssh/authorized_keys | grep -v \"\$(cat scionlab.pub)\" > .ssh/authorized_keys && rm scionlab.pub scionlab.prv && crontab -r" || true
+    done
+    rm "${OUIGO_SSH_PRIVATE_KEY}" "${OUIGO_SSH_PUBLIC_KEY}" > /dev/null 2>&1 || true
+
+}
+
 clear() {
     # goal of this is to delete all active resources
     local job_id
     local location
+
+    if ! stat "${CACHE_DIR}" > /dev/null 2>&1
+    then
+        erase_ssh_keys
+    fi
 
     cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "No machines have been setup yet"
 
@@ -849,17 +868,10 @@ clear() {
         curl -s -X DELETE "https://api.grid5000.fr/3.0/sites/${location}/jobs/${job_id}"
     done
 
+    erase_ssh_keys
+
     loginfo "Deleting crontab"
     crontab -r > /dev/null 2>&1 || true # don't care if this fails
-
-    loginfo "Removing deployment key from locations and local session"
-    local locations
-    locations=(nancy lille lyon sophia rennes grenoble luxembourg nantes)
-    for site in "${locations[@]}"
-    do
-        ssh "${OUIGO_G5K_USERNAME}@${site}.grid5000.fr" "stat scionlab.pub >/dev/null 2>&1 && cat .ssh/authorized_keys | grep -v \"\$(cat scionlab.pub)\" > .ssh/authorized_keys && rm scionlab.pub scionlab.prv" || true
-    done
-    rm "${OUIGO_SSH_PRIVATE_KEY}" "${OUIGO_SSH_PUBLIC_KEY}" > /dev/null 2>&1 || true
 
     loginfo "Removing cache"
     rm -rf "${CACHE_DIR}"
@@ -967,14 +979,13 @@ backup() {
     cd "${CACHE_DIR}" > /dev/null 2>@1 || logerror "Deployment not started yet, aborting..."
     node_nancy=$(get_node nancy)
     loginfo "Starting backup of all nodes"
-    loginfo -n "Backing up of node in nancy "
-    spin start
+    loginfo "Backing up of node in nancy "
     ssh root@"${node_nancy}" "backup_image"
-    loginfo "\nBackup"
+    loginfo "\nBackup up of node in lille"
     # Connect to the second machine this is stationary for this setup
     # If you choose another machine with more interface this jump host
     # is not required.
-    ssh -J root@"${node_nancy}" root@10.1.8.7 "bash backup.sh"
+    ssh -J root@"${node_nancy}" root@10.1.8.7 "backup_image"
 }
 
 persist_ssh_public_key() {
