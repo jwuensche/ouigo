@@ -552,7 +552,6 @@ distribute_ssh_key() {
         fi
         scp "${jump}" "${OUIGO_SSH_PRIVATE_KEY}" "${OUIGO_G5K_USERNAME}@${site}:scionlab.prv" > /dev/null
         scp "${jump}" "${OUIGO_SSH_PUBLIC_KEY}" "${OUIGO_G5K_USERNAME}@${site}:scionlab.pub" > /dev/null
-        ssh "${jump}" "${OUIGO_G5K_USERNAME}@${site}" "cat scionlab.pub >> .ssh/authorized_keys && echo \"* * * * * cat /home/${OUIGO_G5K_USERNAME}/scionlab.pub >> /home/${OUIGO_G5K_USERNAME}/.ssh/authorized_keys\" | crontab -" > /dev/null
     done
 }
 
@@ -562,6 +561,8 @@ setup() {
 
     rm -rf "${CACHE_DIR}"
     mkdir -p "${CACHE_DIR}"
+
+    persist_ssh_public_key "$(cat scionlab.pub)"
 
     reserve_job nancy gros 1293 1391 4
     reserve_job lille chiclet 1294 1390 2
@@ -624,8 +625,7 @@ get_cron() {
     cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "No machines have been setup yet"
 
     tmp=$(mktemp)
-    echo "* * * * * cat /home/${OUIGO_G5K_USERNAME}/scionlab.pub >> /home/${OUIGO_G5K_USERNAME}/.ssh/authorized_keys" >> "${tmp}"
-
+   
     # Extend the machine reservation, if not possible then switch to another machine
     # example for machine name: node_nancy_1234567
     for m in node_*
@@ -832,21 +832,14 @@ erase_ssh_keys() {
     locations=(nancy lille lyon sophia rennes grenoble luxembourg nantes)
     for site in "${locations[@]}"
     do
-        ssh "${OUIGO_G5K_USERNAME}@${site}.grid5000.fr" "stat scionlab.pub >/dev/null 2>&1 && cat .ssh/authorized_keys | grep -v \"\$(cat scionlab.pub)\" > .ssh/authorized_keys && rm scionlab.pub scionlab.prv && crontab -r" || true
+        ssh "${OUIGO_G5K_USERNAME}@${site}.grid5000.fr" "rm scionlab.pub scionlab.prv" || true
     done
-    rm "${OUIGO_SSH_PRIVATE_KEY}" "${OUIGO_SSH_PUBLIC_KEY}" > /dev/null 2>&1 || true
-
 }
 
 clear() {
     # goal of this is to delete all active resources
     local job_id
     local location
-
-    if ! stat "${CACHE_DIR}" > /dev/null 2>&1
-    then
-        erase_ssh_keys
-    fi
 
     cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "No machines have been setup yet"
 
@@ -871,6 +864,8 @@ clear() {
         loginfo "Deleting vlan ${job_id} in ${location}"
         curl -s -X DELETE "https://api.grid5000.fr/3.0/sites/${location}/jobs/${job_id}"
     done
+
+    clear_ssh_public_key "$(cat "${HOME}/scionlab.pub")"
 
     erase_ssh_keys
 
