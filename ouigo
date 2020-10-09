@@ -865,7 +865,8 @@ clear() {
         curl -s -X DELETE "https://api.grid5000.fr/3.0/sites/${location}/jobs/${job_id}"
     done
 
-    clear_ssh_public_key "$(cat "${HOME}/scionlab.pub")"
+    loginfo "Removing deployment key from Grid5000 account"
+    clear_ssh_public_key "$(cat "${HOME}/scionlab.pub")" > /dev/null
 
     erase_ssh_keys
 
