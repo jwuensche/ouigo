@@ -18,7 +18,7 @@ CACHE_DIR="${HOME}/.cache/g5k"
 OUIGO_CONFIG_FILE="./ouigo.conf"
 
 help() {
-    echo -e "$0 - run long taking jobs on the Grid5000 default queue
+    echo -e "$0 - Ouigo Amigo! Run long taking jobs on the Grid5000 default queue!
 
 Available options:
   -c, --configfile  specify the configuration file location
@@ -975,6 +975,26 @@ backup() {
     # If you choose another machine with more interface this jump host
     # is not required.
     ssh -J root@"${node_nancy}" root@10.1.8.7 "bash backup.sh"
+}
+
+persist_ssh_public_key() {
+    # 1 - the ssh public key string
+
+    current_ssh_keys="$(
+        curl "https://api.grid5000.fr/3.0/users/users/${OUIGO_G5K_USERNAME}" \
+        --silent \
+        --request GET \
+        --header "Content-Type: application/json; charset=utf-8" \
+        --header "Accept: application/json" | \
+        jq -r '.ssh_public_key'
+    )"
+
+    curl "https://api.grid5000.fr/3.0/users/users/${OUIGO_G5K_USERNAME}" \
+         --silent \
+         --request PATCH \
+         --header "Content-Type: application/json; charset=utf-8" \
+         --header "Accept: application/json" \
+         --data "{\"ssh_public_key\":\"${current_ssh_keys}\\r\\n$1\"}" > /dev/null
 }
 
 parse_cli_args "$@"
