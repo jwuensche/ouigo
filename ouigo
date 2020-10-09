@@ -997,6 +997,34 @@ persist_ssh_public_key() {
          --data "{\"ssh_public_key\":\"${current_ssh_keys}\\r\\n$1\"}" > /dev/null
 }
 
+clear_ssh_public_key() {
+    # 1 - the ssh public key string which should be removed
+
+    cleared_ssh_keys="$(
+        curl "https://api.grid5000.fr/3.0/users/users/${OUIGO_G5K_USERNAME}" \
+        --silent \
+        --request GET \
+        --header "Content-Type: application/json; charset=utf-8" \
+        --header "Accept: application/json" | \
+        jq -r '.ssh_public_key' | \
+        # fucking crlf, remove it
+        tr -d '\r' | \
+        # filter for ssh key
+        grep -v "$1" | \
+        # restore crlf, cause g5k needs it
+        sed "s/\$/$(printf '\\\r')/" | \
+        # remove last newline (last byte of stream)
+        head -c -2
+    )"
+
+    curl "https://api.grid5000.fr/3.0/users/users/${OUIGO_G5K_USERNAME}" \
+         --silent \
+         --request PATCH \
+         --header "Content-Type: application/json; charset=utf-8" \
+         --header "Accept: application/json" \
+         --data "{\"ssh_public_key\":\"${cleared_ssh_keys}\"}"
+}
+
 parse_cli_args "$@"
 parse_config_file
 load_default_config
