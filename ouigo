@@ -304,26 +304,28 @@ echo \"Done.\"
     chmod +x /usr/bin/backup_image
     chown -R scionlab /home/scionlab
     chsh -s /bin/bash scionlab
-" > /dev/null 2>&1
+" > /dev/null
 }
 
 wait_for_environment() {
     # 1 - machine address/name
     local location
     loginfo "Waiting for environment to be deployed"
-    loginfo "This requires rebooting and bootstrapping the machines, this may take a while..."
+    loginfo -n "This requires rebooting and bootstrapping the machines, this may take a while... "
+    spin start
     while true
     do
         sleep 10
         if ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o BatchMode=yes root@"$1" 'if [[ $(uname -a) =~ "Ubuntu" ]]; then exit 0; else exit 1; fi' > /dev/null 2>/dev/null
         then
+            spin stop
             location=$(echo "$1" | cut -d '_' -f 2)
-            if ! stat scionlab.tgz > /dev/null 2>&1
+            if ! stat "${HOME}/scionlab.tgz" > /dev/null 2>&1
             then
-                loginfo "Connecting possible, setting up..."
+                loginfo "\nConnecting possible, setting up..."
                 setup_machine "$1"
             else
-                loginfo "Connection possbile, skipping setup because already existing image has been used"
+                loginfo "\nConnection possbile, skipping setup because already existing image has been used"
             fi
 
             break
@@ -396,12 +398,15 @@ sophia"
     # Check if VLAN already in use
     for vlan in *vlan*
     do
-        vlan_id=$(echo "${vlan}" | cut -d '_' -f 2)
-        if [[ "${vlan_id}" == "$1" ]]
+        if [[ "${vlan}" != *"BLACKLISTED"* ]]
         then
-            kvl=$(cat "${vlan}")
-            loginfo "VLAN ID $1 is already assigned to kavlan ${kvl}. Skipping..."
-            return 1
+            vlan_id=$(echo "${vlan}" | cut -d '_' -f 2)
+            if [[ "${vlan_id}" == "$1" ]]
+            then
+                kvl=$(cat "${vlan}")
+                loginfo "VLAN ID $1 is already assigned to kavlan ${kvl}. Skipping..."
+                return 1
+            fi
         fi
     done
 
@@ -441,21 +446,28 @@ reserve_vlan() {
                         -X POST -H 'Content-Type: application/json' \
                         -d "{\"resources\":\"{type='kavlan-global'}/vlan=1,walltime=1\",\"command\":\"kavlan -d; curl -d \\\"{\\\\\\\"id\\\\\\\":\\\\\\\"\\\$(kavlan -V)\\\\\\\", \\\\\\\"sdx_vlan_id\\\\\\\":\\\\\\\"$2\\\\\\\"}\\\" -H \\\"Content-Type: application/json\\\" -X POST https://api.grid5000.fr/3.0/stitcher/stitchings; sleep infinity\", \"name\": \"vlan_$2\"}" | jq '.uid')
 
+    touch "${CACHE_DIR}/vlan_$2_$1_${vlan_job_id}"
     start=$(curl -s -X GET "https://api.grid5000.fr/stable/sites/$1/internal/oarapi/jobs/${vlan_job_id}.json" | jq '.scheduled_start')
+    while [[ "$start" == null ]]
+    do
+        sleep 3
+        start=$(curl -s -X GET "https://api.grid5000.fr/stable/sites/$1/internal/oarapi/jobs/${vlan_job_id}.json" | jq '.scheduled_start')
+    done
     loginfo "Reserved VLAN in $1 (Job ID ${vlan_job_id})"
-    time_to=$(echo "$(date +'%s')" - "${start}" | bc)
-    echo "${time_to}"
+    time_to=$(echo "${start}" - "$(date +'%s')" | bc)
+    loginfo "Reservation of VLAN $2 (Job ID ${vlan_job_id}) is scheduled to start at $(date --date "@${start}")"
     # Check if reservations is scheduled to start in the next 5 minutes or if the check should be skipped
-    if [[ "${time_to}" -gt 300 ]] && [[ -z "$3" ]]
+    if [[ "${time_to}" -gt 300 ]] && [[ "$#" -lt 3 ]]
     then
+        rm "${CACHE_DIR}/vlan_$2_$1_${vlan_job_id}"
         loginfo "Reservation in $1 for VLAN $2 takes to long, switching sites"
         delete_job "${vlan_job_id}" "$1"
         touch "${CACHE_DIR}/vlan_$2_$1_${vlan_job_id}_BLACKLISTED"
         vlan_manager "$2"
         rm "${CACHE_DIR}/vlan_$2_$1_${vlan_job_id}_BLACKLISTED"
+        return
     fi
 
-    touch "${CACHE_DIR}/vlan_$2_$1_${vlan_job_id}"
     wait_for_node "$1" "${vlan_job_id}"
 
     vlan_id=$(curl -s -X GET https://api.grid5000.fr/stable/sites/"$1"/internal/oarapi/jobs/"${vlan_job_id}"/resources.json | jq '.items[0].vlan' | xargs)
@@ -520,6 +532,7 @@ distribute_ssh_key() {
     # we choose all the sites as we in general don't care
     local sites
     local jump=""
+    loginfo "Distributing keys to grid5000 sites"
     sites=(nancy lille lyon luxembourg nantes rennes grenoble sophia)
     if ! is_running_on_g5k
     then
@@ -534,7 +547,7 @@ distribute_ssh_key() {
         fi
         scp "${jump}" "${OUIGO_SSH_PRIVATE_KEY}" "${OUIGO_G5K_USERNAME}@${site}:scionlab.prv" > /dev/null
         scp "${jump}" "${OUIGO_SSH_PUBLIC_KEY}" "${OUIGO_G5K_USERNAME}@${site}:scionlab.pub" > /dev/null
-        ssh -J "${OUIGO_G5K_USERNAME}@access.grid5000.fr" "${OUIGO_G5K_USERNAME}@${site}" "cat scionlab.pub >> .ssh/authorized_keys" > /dev/null
+        ssh "${jump}" "${OUIGO_G5K_USERNAME}@${site}" "cat scionlab.pub >> .ssh/authorized_keys && echo \"* * * * * cat /home/${OUIGO_G5K_USERNAME}/scionlab.pub >> /home/${OUIGO_G5K_USERNAME}/.ssh/authorized_keys\" | crontab -" > /dev/null
     done
 }
 
@@ -548,14 +561,8 @@ setup() {
     reserve_job nancy gros 1293 1391 4
     reserve_job lille chiclet 1294 1390 2
 
-
     node_nancy=$(get_node nancy)
     node_lille=$(get_node lille)
-
-    # Add deployment key to the mix
-    ssh "root@${node_lille}" "mv scionlab.prv .ssh/id_rsa && cat scionlab.pub >> .ssh/authorized_keys"
-    scp scionlab.prv scionlab.pub "root@${node_nancy}:"
-    ssh "root@${node_nancy}" "mv scionlab.prv .ssh/id_rsa && cat scionlab.pub >> .ssh/authorized_keys"
 
     network_machine "${node_lille}" "eth1" 1390
     # Set up the eno2 interface of lille before disconnecting it from g5k
@@ -568,6 +575,8 @@ ip route add 10.1.8.0/24 dev eno2"
     network_machine "${node_nancy}" "eth1" 1293
     network_machine "${node_nancy}" "eth2" 1391
     network_machine "${node_nancy}" "eth3" 1390
+    # init connection between machines
+    ssh root@"${node_nancy}" "ip addr add 10.1.8.9 dev enp3s0f1 && ip link set dev enp3s0f1 up && sleep 1 && ip route add 10.1.8.0/24 dev enp3s0f1 || true && ip addr add 10.1.8.9 dev enp129s0f1 && ip link set dev enp129s0f1 up && sleep 1 && ip route add 10.1.8.0/24 dev enp129s0f1" || true
     get_cron
 
     local scionlab_env
@@ -575,12 +584,12 @@ ip route add 10.1.8.0/24 dev eno2"
 name: scionlab
 version: 2020091021
 description: base image scionlab
-author: johannes.wuensche@ovgu.de
+author: support@scionlab
 visibility: private
 destructive: false
 os: linux
 image:
-  file: /home/jwuensche/scionlab.tgz
+  file: /home/${OUIGO_G5K_USERNAME}/scionlab.tgz
   kind: tar
   compression: gzip
 postinstalls:
@@ -610,6 +619,7 @@ get_cron() {
     cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "No machines have been setup yet"
 
     tmp=$(mktemp)
+    echo "* * * * * cat /home/${OUIGO_G5K_USERNAME}/scionlab.pub >> /home/${OUIGO_G5K_USERNAME}/.ssh/authorized_keys" >> "${tmp}"
 
     # Extend the machine reservation, if not possible then switch to another machine
     # example for machine name: node_nancy_1234567
@@ -847,7 +857,7 @@ clear() {
     locations=(nancy lille lyon sophia rennes grenoble luxembourg nantes)
     for site in "${locations[@]}"
     do
-        ssh "${OUIGO_G5K_USERNAME}@${site}.grid5000.fr" "stat scionlab.pub >/dev/null 2>&1 && cat .ssh/authorized_keys | grep -v \"\$(cat scionlab.pub)\" > .ssh/authorized_keys && rm scionlab.pub scionlab.prv" > /dev/null 2>&1
+        ssh "${OUIGO_G5K_USERNAME}@${site}.grid5000.fr" "stat scionlab.pub >/dev/null 2>&1 && cat .ssh/authorized_keys | grep -v \"\$(cat scionlab.pub)\" > .ssh/authorized_keys && rm scionlab.pub scionlab.prv" || true
     done
     rm "${OUIGO_SSH_PRIVATE_KEY}" "${OUIGO_SSH_PUBLIC_KEY}" > /dev/null 2>&1 || true
 
@@ -956,7 +966,11 @@ backup() {
     local node_nancy
     cd "${CACHE_DIR}" > /dev/null 2>@1 || logerror "Deployment not started yet, aborting..."
     node_nancy=$(get_node nancy)
-    ssh root@"${node_nancy}" "backup_image" > /dev/null 2>&1
+    loginfo "Starting backup of all nodes"
+    loginfo -n "Backing up of node in nancy "
+    spin start
+    ssh root@"${node_nancy}" "backup_image"
+    loginfo "\nBackup"
     # Connect to the second machine this is stationary for this setup
     # If you choose another machine with more interface this jump host
     # is not required.
