@@ -16,6 +16,7 @@ fi
 
 CACHE_DIR="${HOME}/.cache/g5k"
 OUIGO_CONFIG_FILE="./ouigo.conf"
+OUIGO_VERSION=0.0.1
 
 help() {
     echo -e "$0 - Ouigo Amigo! Run long taking jobs on the Grid5000 default queue!
@@ -30,10 +31,12 @@ Available options:
   -h, --help        show this message
 
 Available actions:
-  setup    runs the initial setup of all jobs on sites
-  info     displays information about the current reservations
-  backup   trigger a manual backup of the running machines
-  clear    remove active crontab and cancel jobs
+  setup       runs the initial setup of all jobs on sites
+  info        displays information about the current reservations
+  backup      trigger a manual backup of the running machines
+  send-email  send ssh keys and ouigo configuration in an encrypted email
+              to the ScionLab administrators
+  clear       remove active crontab and cancel jobs
 
 Configuration file:
   The ouigo configuration file is a standard UNIX conf file in the form
@@ -141,6 +144,7 @@ load_default_config() {
     set_if_undefined OUIGO_G5K_USERNAME ""
     set_if_undefined OUIGO_SSH_PRIVATE_KEY "./scionlab_grid5000_rsa"
     set_if_undefined OUIGO_SSH_PUBLIC_KEY "./scionlab_grid5000_rsa.pub"
+    set_if_undefined OUIGO_COMPATIBLE_VERSION "${OUIGO_VERSION}"
 }
 
 __log__ () {
@@ -895,6 +899,13 @@ display_info() {
 "
 }
 
+check_ouigo_version() {
+    if [[ "${OUIGO_COMPATIBLE_VERSION}" != "${OUIGO_VERSION}" ]]
+    then
+        logerror "The ouigo version (${OUIGO_COMPATIBLE_VERSION}) recorded in ${OUIGO_CONFIG_FILE} is not compatible with this version of ouigo (${OUIGO_VERSION})"
+    fi
+}
+
 is_running_on_g5k() {
     test -d /etc/grid5000
 }
@@ -1036,29 +1047,93 @@ clear_ssh_public_key() {
          --data "{\"ssh_public_key\":\"${cleared_ssh_keys}\"}"
 }
 
+send-email() {
+    email_subject="[G5K Deployment] A new Ouigo configuration has been generated"
+    email_body=$(cat <<-EOF
+Hello fellow travellers,
+
+a new Grid5000 configuration has been deployed. In order to ensure your
+access to all machines, a GPG-encrypted TAR archive has been generated.
+The archive contains the SSH key needed for access, as well as the Ouigo
+configuration which was used in the new deployment.
+
+Best regards and on time trains!
+EOF
+              )
+
+    if [[ ! -r "${OUIGO_CONFIG_FILE}" ]]
+    then
+        logerror "Cannot create email archive: ${OUIGO_CONFIG_FILE} does not exist or is not readable."
+    fi
+
+    if [[ ! -r "${OUIGO_SSH_PRIVATE_KEY}" ]]
+    then
+        logerror "Cannot create email archive: ${OUIGO_SSH_PRIVATE_KEY} does not exist or is not readable."
+    fi
+
+    if [[ ! -r "${OUIGO_SSH_PUBLIC_KEY}" ]]
+    then
+        logerror "Cannot create email archive: ${OUIGO_SSH_PUBLIC_KEY} does not exist or is not readable."
+    fi
+
+    rm -rf /tmp/gnupg
+    mkdir -m 700 /tmp/gnupg
+
+    # create temporary gnupg homedir
+    gpg --quiet --homedir /tmp/gnupg --import ./scionlab_gpg.pub
+
+    tar czf - \
+        "${OUIGO_CONFIG_FILE}" \
+        "${OUIGO_SSH_PRIVATE_KEY}" \
+        "${OUIGO_SSH_PUBLIC_KEY}" | \
+        gpg --homedir /tmp/gnupg \
+            --batch \
+            --quiet \
+            --trusted-key C4CDE52146CFF32E \
+            --recipient "Juan A. Garcia Pardo <juagargi@gmail.com>" \
+            --encrypt > ouigo-config.tgz.gpg
+
+    # remove temporary gnupg homedir
+    rm -rf /tmp/gnupg
+
+    xdg-email --utf8 \
+              --subject "${email_subject}" \
+              --body "${email_body}" \
+              --attach ./ouigo-config.tgz.gpg \
+              "scionlab-admins@sympa.ethz.ch"
+}
+
 parse_cli_args "$@"
 parse_config_file
 load_default_config
 
+check_ouigo_version
 check_keys
-ensure_running_on_g5k "$@"
 
 case "${OUIGO_ACTION}" in
     setup)
+        ensure_running_on_g5k "$@"
         setup
         ;;
     extend)
+        ensure_running_on_g5k "$@"
         # used within the crontabs
         extend_job "${OUIGO_EXTEND_JOBID}" "${OUIGO_EXTEND_LOCATION}"
         ;;
     info)
+        ensure_running_on_g5k "$@"
         display_info
         ;;
     clear)
+        ensure_running_on_g5k "$@"
         clear
         ;;
     backup)
+        ensure_running_on_g5k "$@"
         backup
+        ;;
+    send-email)
+        send-email
         ;;
     *)
         echo "$0: Invalid action \`${OUIGO_ACTION}\`. Use \`--help\` to see a list of available actions!"
