@@ -16,6 +16,7 @@ fi
 
 CACHE_DIR="${HOME}/.cache/g5k"
 OUIGO_CONFIG_FILE="./ouigo.conf"
+SSH_HOST_CHECK=(-q -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no")
 OUIGO_VERSION=0.0.1
 
 help() {
@@ -266,6 +267,7 @@ ouigo_client() {
 
     # prevents errors when glob's cannot be expanded
     shopt -s nullglob
+    SSH_HOST_CHECK=(-q -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no")
 
     # shellcheck disable=SC2152
     ! getopt --test > /dev/null
@@ -387,10 +389,7 @@ Copyright (c) 2020 - Johannes Wünsche, Fin Christensen"
         mkdir -p /home/scionlab/.ssh
         cat <<EOF > /home/scionlab/.ssh/authorized_keys
 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDN2DRwQzmsywlXfve9GSS0nxMkLZUADBxRelGODXjm++BN2y/09ADwHc9Z9ihFS1P1DgAo3H180UtM2I2mtxpkE0RVNLt9/6l8pP7x+VR9KOy08Tzp/hsf47zFHEZQoDUPV4refuBOX4eTG/gLnOxJjmYKloov8ArnGd3jnOgK/OIGtjIhg6a8200wqFYCiDoZzc68TMtToSs37jJgY2ERjL0AUk/eOpvcovNBpFnyykBbAEbj/Fh3C+xv/pg/AVOLadIwxdM/rwLfMuhQvJPCD4dq+8mJ33plw8F+CSa06ZfE+hnTr69T9i2/tYSOaTk/fYEGlCit/pWVDkoy1JO1N7BKX+ZH4idyMzIuE3jU0qIglNEHzvjAsSfUTOuyRIs3NAqX2IB20SEFIHmJK5/MVi31cTZkjfGF9OiGiitA3rIQBz5nhzEQWg/g3HI9Z/J144gEIyclskH6ugyT4iBNHk6TQS4KBAxdigGPqfykw9WwsfGIeeBaoH6lqtM6z93ICglBHACIjnUjyx/uXNU9x+6JakTb7PHN32+F4DuRv+IkTR2Q6XcqYBju4jjZkUHsf93leghjiBSFtXT2XF1QAjnUxkJi/vy59CwJXapCpUWIn2TxKSZCriuX4uyOxqfXc767QsfAmVIQT5osDtucmQScfBeuY9MPTsMsARI2oQ== scion-ansible-key
-ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDTS3Euq1SXQ0wQsMrAdGgNhAJ7qHg/cSrDfCbZAOAj4/xOyEM5OFXrshtYDwbPqGA7Rtf4eq5ZCFSWaLh2aXSAr++I0X1av8rRXrizloWA2NjtkBVIJ/cuGty/lbNGFCa6KRgBOpd7c4lMTe/2AEAXM6azynMJJJ1eS8o+PZWcyEbCF36aOyF9kPoJ4by7gfXD3JGAXg3GltSBUURKzCvq9wCgvA9ZYApn+6Me1GrVbL0HhIm2mZXBVEYyqDSOQ9gjCz51K1eNp3kAabgxI5p9UEbJxN0emGHJt7PPOquZe9bbx/F7HxzzkOpatczyo45faj5u/s1y3vUohyy6E2GRSe/1rQVRxV7t4ENBUApt5Nd56fg0k/DGcnaVKnu0Kex0wY6jI4MwMS7DdB2cWsBkCCGwod8ybP7jDHLWC1siXY5bVA1ubCVeTNMgzpyWAgm8rqWlxtM6nqLTCb0oqPET7Y+q1ii8e+C5Y0Agd60Dq1Qi3TrSci2PsRI3hp6fuCawWVhpk/8yzCcAKKmfuCM8gTp+L7Y9IE99KBT1cfLMVNbA3FGC7SAJVCPSddCdxscwPZwAOfUSEKkQcWHqRO5PN32OogKq3liraCdVMfXlLOEGqpUJFnUnahQXLTHS+oHuHPPCDn/FjLAe2nivt7n0u4iTPQBhYFZIRHMmNCwEZQ== wirzf@inf.ethz.ch
-ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC5RjfMFXQhu6rhiuq4wCgkb02YXrrTZtUW9NwQaqbveBlbDnzCdmXA9aPXq7E4yZttVFyQc+skiyZ/JlQGaDHUCWf02Jq0qIUxx458xPmzYG3MT4C/HPDw3DMMbr36xij9FuHt5litZ7874vjBYkbfPzh4WS/78+tt8gtS6HZG1I+jpdi2ucJIlha5Z52u6ItavYZiOWaASr8vC59kCd1OdtO3gowJPAz6/38WJ4TTzJrkoRSdaMZxoYh07xwg2Zn+ulKGZPoH33mwL2JtUPowFtBKe5YdYftbfT7n0jMBVMXYR6XsQ9VL/mpwTkSUe3W6hrsF+nZdk0hSt86QLvRRY7x07VkD25l3oyufiMW7ZdpWO87JI9OTgZluNFf1Vh6BucNrjiSxnKHnhHs4naOcLMBbfJLjDAaFe4bXZ3aHKw0wZZGpUApYKe/9nJqlP4lmZNlWoSZESXFndZiqQMixIoynNG7k4vuVp8zoXCmD6AduFRTv59p3g2tB0fHaFyuoIV3M4ffghdqayTJDRFn8KpeRfko/GR5Zo4/0GSLRTDiI5pScLb0EAbtoWJJFuJDt8wtbMUrPaN/i5QAhXOq9mvmAcnVigeWcIcrebA9EAv47y1ePrlyFh3l2eBr65MicrPjD+S9i4qxS7ryDsHJdd10WCuhX9rET/2QHaHsdlw== juan.garcia@inf.ethz.ch
-ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDsmeslOcAxeDlcjS6aCFTU0SJckSHNg/Y7AFQj0R1dtJ//SMGv0StYTTrV7fCeALjVhzji0BJeE6VdJs5BZFz3lLZhq/JoSGYX2DHfLTclvch73sH7gM/u9nr7uyTLPZNauPCV+7lXt7tLqxyBb/hcr/j4k44U4nUR/R2ChPL3l7HFv3Iaxa61vNVzL8MIqcCCxd8lqZ4gUfZuP5aSZTdVE6CJdKY6pPz0ch0deL2+ndQMr2O8dqZUEJHwA4WB9SSrWoezgxOHyLkENhOPOPMqFMKwn8VasWmtYywyj0NjFRPKJdhIrJy/DNjJXavOMlAIbwwTcbdJNbSpuDL4t0cz jkwon@ict-networks-192-168-001-003.fwd-v4.ethz.ch
-ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC3LzEAkeZ4SNtTlHfEveGNGyxC4W0jWndjyckkxnCIIEXP9V6DWJIdUI3x+rrsAdolVBuoWogcW68+xogPg2xWkszKd3cEvPA3nDQWOzc4U4+a239dYb0YTgFKG/pDkcoS8qaRzuR0oveHXwdJeGMulAL111WZJ6xJk1cG5q+Eqh9cj61yzhw2a/XmEdaIEy/Yrgl5j6jrHjBVLww7rxdaSf9QWrDXVmuRDjD1F3knBeEOhAlK4kS8gL4rduqtwR6FybjiKkiqRKQk7hSB+aXgakmZ5DxEz0k/kqtSs+AWIPmZWS4JRO/JpieS//+wSS4MrM3ENWHKD7n0lJ/9Gbz8eirVAdb6SzOVAOXZw58A12TQ7JvD5YHr8hu96mEobt7GhvMOCRQAv7eddTZdqVNALTYFRxX//IYIJgvFhy2lUL6FDd+b9bzoUrIvCz6u2lx3a4j5jBeDxwJ5hZpB0Pc8i/iPB/wPZ0UfucirSM0/UvZgJWxnXu36LlZuIThSAMJJeT2iuuttl8OvY+wy/J1i1EaKcJTZu7IrYf3Q8FMmStTI0xe/LVoTJS7OKUGxn75YTaFbLre/N2kMvSXS4dL6zDHdP1t64gvl+t0Y7p5HLmq06anPhfHyVmHQ2q2e3eMsTjTASE7xNUs3K9jDLA6NuilVyDPXNO+UC7p2JETQlw== mateusz-kowalski:cardno:000608699130
+ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDTS3Euq1SXQ0wQsMrAdGgNhAJ7qHg/cSrDfCbZAOAj4/xOyEM5OFXrshtYDwbPqGA7Rtf4eq5ZCFSWaLh2aXSAr++I0X1av8rRXrizloWA2NjtkBVIJ/cuGty/lbNGFCa6KRgBOpd7c4lMTe/2AEAXM6azynMJJJ1eS8o+PZWcyEbCF36aOyF9kPoJ4by7gfXD3JGAXg3GltSBUURKzCvq9wCgvA9ZYApn+6Me1GrVbL0HhIm2mZXBVEYyqDSOQ9gjCz51K1eNp3kAabgxI5p9UEbJxN0emGHJt7PPOquZe9bbx/F7HxzzkOpatczyo45faj5u/s1y3vUohyy6E2GRSe/1rQVRxV7t4ENBUApt5Nd56fg0k/DGcnaVKnu0Kex0wY6jI4MwMS7DdB2cWsBkCCGwod8ybP7jDHLWC1siXY5bVA1ubCVeTNMgzpyWAgm8rqWlxtM6nqLTCb0oqPET7Y+q1ii8e+C5Y0Agd60Dq1Qi3TrSci2PsRI3hp6fuCawWVhpk/8yzCcAKKmfuCM8gTp+L7Y9IE99KBT1cfLMVNbA3FGC7SAJVCPSddCdxscwPZwAOfUSEKkQcWHqRO5PN32OogKq3liraCdVMfXlLOEGqpUJFnUnahQXLTHS+oHuHPPCDn/FjLAe2nivt7n0u4iTPQBhYFZIRHMmNCwEZQ== wirzf@inf.ethz.ch ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC5RjfMFXQhu6rhiuq4wCgkb02YXrrTZtUW9NwQaqbveBlbDnzCdmXA9aPXq7E4yZttVFyQc+skiyZ/JlQGaDHUCWf02Jq0qIUxx458xPmzYG3MT4C/HPDw3DMMbr36xij9FuHt5litZ7874vjBYkbfPzh4WS/78+tt8gtS6HZG1I+jpdi2ucJIlha5Z52u6ItavYZiOWaASr8vC59kCd1OdtO3gowJPAz6/38WJ4TTzJrkoRSdaMZxoYh07xwg2Zn+ulKGZPoH33mwL2JtUPowFtBKe5YdYftbfT7n0jMBVMXYR6XsQ9VL/mpwTkSUe3W6hrsF+nZdk0hSt86QLvRRY7x07VkD25l3oyufiMW7ZdpWO87JI9OTgZluNFf1Vh6BucNrjiSxnKHnhHs4naOcLMBbfJLjDAaFe4bXZ3aHKw0wZZGpUApYKe/9nJqlP4lmZNlWoSZESXFndZiqQMixIoynNG7k4vuVp8zoXCmD6AduFRTv59p3g2tB0fHaFyuoIV3M4ffghdqayTJDRFn8KpeRfko/GR5Zo4/0GSLRTDiI5pScLb0EAbtoWJJFuJDt8wtbMUrPaN/i5QAhXOq9mvmAcnVigeWcIcrebA9EAv47y1ePrlyFh3l2eBr65MicrPjD+S9i4qxS7ryDsHJdd10WCuhX9rET/2QHaHsdlw== juan.garcia@inf.ethz.ch ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDsmeslOcAxeDlcjS6aCFTU0SJckSHNg/Y7AFQj0R1dtJ//SMGv0StYTTrV7fCeALjVhzji0BJeE6VdJs5BZFz3lLZhq/JoSGYX2DHfLTclvch73sH7gM/u9nr7uyTLPZNauPCV+7lXt7tLqxyBb/hcr/j4k44U4nUR/R2ChPL3l7HFv3Iaxa61vNVzL8MIqcCCxd8lqZ4gUfZuP5aSZTdVE6CJdKY6pPz0ch0deL2+ndQMr2O8dqZUEJHwA4WB9SSrWoezgxOHyLkENhOPOPMqFMKwn8VasWmtYywyj0NjFRPKJdhIrJy/DNjJXavOMlAIbwwTcbdJNbSpuDL4t0cz jkwon@ict-networks-192-168-001-003.fwd-v4.ethz.ch ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC3LzEAkeZ4SNtTlHfEveGNGyxC4W0jWndjyckkxnCIIEXP9V6DWJIdUI3x+rrsAdolVBuoWogcW68+xogPg2xWkszKd3cEvPA3nDQWOzc4U4+a239dYb0YTgFKG/pDkcoS8qaRzuR0oveHXwdJeGMulAL111WZJ6xJk1cG5q+Eqh9cj61yzhw2a/XmEdaIEy/Yrgl5j6jrHjBVLww7rxdaSf9QWrDXVmuRDjD1F3knBeEOhAlK4kS8gL4rduqtwR6FybjiKkiqRKQk7hSB+aXgakmZ5DxEz0k/kqtSs+AWIPmZWS4JRO/JpieS//+wSS4MrM3ENWHKD7n0lJ/9Gbz8eirVAdb6SzOVAOXZw58A12TQ7JvD5YHr8hu96mEobt7GhvMOCRQAv7eddTZdqVNALTYFRxX//IYIJgvFhy2lUL6FDd+b9bzoUrIvCz6u2lx3a4j5jBeDxwJ5hZpB0Pc8i/iPB/wPZ0UfucirSM0/UvZgJWxnXu36LlZuIThSAMJJeT2iuuttl8OvY+wy/J1i1EaKcJTZu7IrYf3Q8FMmStTI0xe/LVoTJS7OKUGxn75YTaFbLre/N2kMvSXS4dL6zDHdP1t64gvl+t0Y7p5HLmq06anPhfHyVmHQ2q2e3eMsTjTASE7xNUs3K9jDLA6NuilVyDPXNO+UC7p2JETQlw== mateusz-kowalski:cardno:000608699130
 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC257Sze025fiU139CRgKnXZO9IQKFBKM9KHKLasJq4DVf/I4phFKA/aAiEKuoic/j5u3bBvOCPKKnEITOoxcCifQyPwJw4dPhsotu7tBNSPWNo0hcBDu41MowqV/lSXEGldNQHoKTZZDc51oVF2XrHeR/rVCeddVEKTFTFoCi2a2WpfbM0wSZpGwCXXDnmfPKhK6lYHwjrJjluaEigC98kWYq0UKKFTDvvvXeomf6DeY1kT1eXASlh7+7Jmvm6XqSqYoWI56OsBXavuGODD114d2GphUsjIs59QtEhZ+rcqVtnWM9dwM+nWD5I/9qiBcYccVL+cnihoLomN3ZiVBb4mIJ9FS0mi08gRi29Z1atbjqw2TlYmAPYor8pdYqdTuLbvfSSTIHVfYOFuzH+kyHm4ZoRQX43wj+oWI0qX71NXqe3tsYufFGmbBDx6yLiQny/cbaDBh+omKdp4eLKI+NevX31o2peE2uq7zYs3j5b5VvE+9eiKaszyYPF1PJzGPU= netsec-awx
 ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAwzZKvVxcsWFpJOgnKwfpmEC3t8LIAwQMIyjzS2lEQGtJa1jTay2p8oOH8J4YZc5fcNS0f94HuRBttTWbV5Vzs1GJs/o8bwUXfxKC+nqvzoLQs+AsQiXwnzz6JJxBN8CAtUZJ9Oi39kuDz3LHJMocM5VqTiIFVKBBpTyHrKapGZBH/vbJfoIcAM8LKl/BiV01hYTOVaq/LU/QyiUus0/Wl0QuY097KFQb3x6dgSfJo1+1oUJ3pfnTDsqWLNFkphTjZETZRdB53sGBIbWYumtGyVeY5scYTUPQ1iqbF8uWndyka/FE4LhR3ytboTlaSo6nCzr02uyP/kpy83yAgPwh3Q== hausheer@pc-hausheer
 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCnVk9YOZmt3JatkxZ6RcY/g/Sp4GjMTIcgrrYwzafZtaq6jDg1/aQCZovJjF+49j3K7T0oOjC7ncx5G/bE2g3Ay7bf2fzDHoiyK1PC4fYgw1YItYGGZxSkj6nQGu4IN4RWeTwwD3fnRzPuB44n71fe7G2Cnwc6i8sqtimowKledtVgi3IQ3ISXE2BZ5CnyCj9l81RYqPa3sBFyfSwwSPBz6IQvyYRFAF1h+XNI8qpEAoHqztaiuoRvV5kMxqyS3kDRxsEPuyR4JbDhGFs0l+b0K22XEl30a/vVRnMCVScx1AM/eJ3uELp4q/Vf6GXWtKQ/Hhbs3/Di1c67AIsRTaOX auto-deploy@scionlab.org
@@ -426,11 +425,11 @@ EOF
 
         loginfo "Copying image to frontend..."
         # Make ssh options available, for e.g. identity file
-        scp "${args[@]}" /tmp/scionlab.tgz "${OUIGO_G5K_USERNAME}@${endlocation}:"
+        scp "${SSH_HOST_CHECK[@]}" "${args[@]}" /tmp/scionlab.tgz "${OUIGO_G5K_USERNAME}@${endlocation}:"
         # Replace old image with new one
         # We'll need a key for that, gonna use my account for the time being
         loginfo "Refreshing kaenv3 entry..."
-        ssh "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "kaenv3 -d scionlab; kaenv3 -a scionlab.env"
+        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "kaenv3 -d scionlab; kaenv3 -a scionlab.env"
         loginfo "Done."
     }
 
@@ -450,15 +449,9 @@ EOF
     esac
 }
 
-OUIGO_CLIENT_SRC="$(
-  declare -f ouigo_client | \
-          head -n -1 | tail -n +3 | \
-          sed "s/\${OUIGO_G5K_USERNAME}/${OUIGO_G5K_USERNAME}/g"
-)"
-
 setup_machine() {
     # 1 - machine address/name
-    scp "$HOME/scionlab.prv" "$HOME/scionlab.pub" "root@${1}:"
+    scp "${SSH_HOST_CHECK[@]}" "$HOME/scionlab.prv" "$HOME/scionlab.pub" "root@${1}:"
     ssh -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no" "root@$1" "
     echo \"#! /bin/bash
 ${OUIGO_CLIENT_SRC}\" > /usr/bin/ouigo-client
@@ -479,7 +472,7 @@ wait_for_environment() {
     while true
     do
         sleep 10
-        if ssh -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o PasswordAuthentication=no -o BatchMode=yes root@"$1" 'if [[ $(uname -a) =~ "Ubuntu" ]]; then exit 0; else exit 1; fi' > /dev/null 2>/dev/null
+        if ssh "${SSH_HOST_CHECK[@]}" -o PasswordAuthentication=no -o BatchMode=yes root@"$1" 'if [[ $(uname -a) =~ "Ubuntu" ]]; then exit 0; else exit 1; fi' > /dev/null 2>/dev/null
         then
             spin stop
             location=$(echo "$1" | cut -d '_' -f 2)
@@ -509,7 +502,7 @@ reserve_job() {
 
     # Get nodes and check availability there is a dummy `sleep infinity` command to keep the job alive
     # the $OAR_NODEFILE has to be evaluated on the machine itself, so disregard the shellcheck warning here
-    if ! ssh "${USER}@${1}" stat scionlab.tgz >/dev/null 2>&1
+    if ! ssh "${SSH_HOST_CHECK[@]}" "${USER}@${1}" stat scionlab.tgz >/dev/null 2>&1
     then
         # No image created before
         node_result=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
@@ -704,12 +697,12 @@ distribute_ssh_key() {
 
     for site in "${sites[@]}"
     do
-        if ssh "${jump[@]}" "${OUIGO_G5K_USERNAME}@${site}" "test -r scionlab.pub" && [[ $(sha1sum "${OUIGO_SSH_PUBLIC_KEY}") != $(ssh "${jump}" "${OUIGO_G5K_USERNAME}@${site}" "sha1sum scionlab.pub") ]]
+        if ssh "${SSH_HOST_CHECK[@]}" "${jump[@]}" "${OUIGO_G5K_USERNAME}@${site}" "test -r scionlab.pub" && [[ $(sha1sum "${OUIGO_SSH_PUBLIC_KEY}") != $(ssh "${jump}" "${OUIGO_G5K_USERNAME}@${site}" "sha1sum scionlab.pub") ]]
         then
             logerror "Keys in Grid5000 ${site} do not match with your current key, please check if you cleared first or using the correct keys for this deployment"
         fi
-        scp "${jump[@]}" "${OUIGO_SSH_PRIVATE_KEY}" "${OUIGO_G5K_USERNAME}@${site}:scionlab.prv" > /dev/null
-        scp "${jump[@]}" "${OUIGO_SSH_PUBLIC_KEY}" "${OUIGO_G5K_USERNAME}@${site}:scionlab.pub" > /dev/null
+        scp "${SSH_HOST_CHECK[@]}" "${jump[@]}" "${OUIGO_SSH_PRIVATE_KEY}" "${OUIGO_G5K_USERNAME}@${site}:scionlab.prv" > /dev/null
+        scp "${SSH_HOST_CHECK[@]}" "${jump[@]}" "${OUIGO_SSH_PUBLIC_KEY}" "${OUIGO_G5K_USERNAME}@${site}:scionlab.pub" > /dev/null
     done
 }
 
@@ -731,7 +724,7 @@ setup() {
 
     network_machine "${node_lille}" "eth1" 1390
     # Set up the eno2 interface of lille before disconnecting it from g5k
-    ssh "root@${node_lille}" "ip addr add 10.1.8.7 dev eno2
+    ssh "${SSH_HOST_CHECK[@]}" "root@${node_lille}" "ip addr add 10.1.8.7 dev eno2
 ip link set dev eno2 up
 sleep 1
 ip route add 10.1.8.0/24 dev eno2"
@@ -741,7 +734,7 @@ ip route add 10.1.8.0/24 dev eno2"
     network_machine "${node_nancy}" "eth2" 1391
     network_machine "${node_nancy}" "eth3" 1390
     # init connection between machines
-    ssh root@"${node_nancy}" "ip addr add 10.1.8.9 dev enp3s0f1 && ip link set dev enp3s0f1 up && sleep 1 && ip route add 10.1.8.0/24 dev enp3s0f1 || true && ip addr add 10.1.8.9 dev enp129s0f1 && ip link set dev enp129s0f1 up && sleep 1 && ip route add 10.1.8.0/24 dev enp129s0f1" || true
+    ssh "${SSH_HOST_CHECK[@]}" root@"${node_nancy}" "ip addr add 10.1.8.9 dev enp3s0f1 && ip link set dev enp3s0f1 up && sleep 1 && ip route add 10.1.8.0/24 dev enp3s0f1 || true && ip addr add 10.1.8.9 dev enp129s0f1 && ip link set dev enp129s0f1 up && sleep 1 && ip route add 10.1.8.0/24 dev enp129s0f1" || true
     get_cron
 
     local scionlab_env
@@ -768,8 +761,8 @@ filesystem: ext4
 partition_type: 131
 multipart: false\""
     # We want client side escaping here
-    ssh "${OUIGO_G5K_USERNAME}@lille" "echo ${scionlab_env} > scionlab.env"
-    ssh "${OUIGO_G5K_USERNAME}@nancy" "echo ${scionlab_env} > scionlab.env"
+    ssh "${SSH_HOST_CHECK[@]}" "${OUIGO_G5K_USERNAME}@lille" "echo ${scionlab_env} > scionlab.env"
+    ssh "${SSH_HOST_CHECK}" "${OUIGO_G5K_USERNAME}@nancy" "echo ${scionlab_env} > scionlab.env"
 }
 
 get_cron() {
@@ -942,7 +935,7 @@ recreate_machine() {
     else
         network_machine "${node}" "eth1" 1390
         # Set up the eno2 interface of lille before disconnecting it from g5k
-        ssh root@"${node}" "ip addr add 10.1.8.7 dev eno2
+        ssh "${SSH_HOST_CHECK[@]}" root@"${node}" "ip addr add 10.1.8.7 dev eno2
 ip link set dev eno2 up
 sleep 1
 ip route add 10.1.8.0/24 dev eno2"
@@ -991,7 +984,7 @@ erase_ssh_keys() {
     locations=(nancy lille lyon sophia rennes grenoble luxembourg nantes)
     for site in "${locations[@]}"
     do
-        ssh "${OUIGO_G5K_USERNAME}@${site}.grid5000.fr" "rm scionlab.pub scionlab.prv" || true
+        ssh "${SSH_HOST_CHECK[@]}" "${OUIGO_G5K_USERNAME}@${site}.grid5000.fr" "rm scionlab.pub scionlab.prv" > /dev/null 2>&1 || true
     done
 }
 
@@ -1081,11 +1074,11 @@ ensure_running_on_g5k() {
 
         loginfo "Not running on a Grid5000 machine, copying workspace and logging in..."
 
-        scp "$0" "${OUIGO_G5K_USERNAME}@access.grid5000.fr:${OUIGO_G5K_ACCESS_LOCATION}"
+        scp "${SSH_HOST_CHECK[@]}" "$0" "${OUIGO_G5K_USERNAME}@access.grid5000.fr:${OUIGO_G5K_ACCESS_LOCATION}"
 
         if [[ -r "${OUIGO_CONFIG_FILE}" ]]
         then
-            scp "${OUIGO_CONFIG_FILE}" "${OUIGO_G5K_USERNAME}@access.grid5000.fr:${OUIGO_G5K_ACCESS_LOCATION}"
+            scp "${SSH_HOST_CHECK[@]}" "${OUIGO_CONFIG_FILE}" "${OUIGO_G5K_USERNAME}@access.grid5000.fr:${OUIGO_G5K_ACCESS_LOCATION}"
         fi
 
         if [[ "${OUIGO_ACTION}" == "clear" ]] && stat "${OUIGO_SSH_PRIVATE_KEY}" > /dev/null 2>&1
@@ -1094,7 +1087,7 @@ ensure_running_on_g5k() {
             rm "${OUIGO_SSH_PRIVATE_KEY}" "${OUIGO_SSH_PUBLIC_KEY}" > /dev/null 2>&1 || true
         fi
 
-        ssh -J "${OUIGO_G5K_USERNAME}@access.grid5000.fr" \
+        ssh "${SSH_HOST_CHECK[@]}" -J "${OUIGO_G5K_USERNAME}@access.grid5000.fr" \
             "${OUIGO_G5K_USERNAME}@${OUIGO_G5K_ACCESS_LOCATION}.grid5000.fr" \
             bash ./ouigo "$@"
         exit "$?"
@@ -1139,12 +1132,12 @@ backup_all_nodes() {
     node_nancy=$(get_node nancy)
     loginfo "Starting backup of all nodes"
     loginfo "Backing up of node in nancy "
-    ssh root@"${node_nancy}" "ouigo-client backup-this-node"
+    ssh "${SSH_HOST_CHECK[@]}" root@"${node_nancy}" "ouigo-client backup-this-node"
     loginfo "\nBackup up of node in lille"
     # Connect to the second machine this is stationary for this setup
     # If you choose another machine with more interface this jump host
     # is not required.
-    ssh -J root@"${node_nancy}" root@10.1.8.7 "ouigo-client backup-this-node"
+    ssh "${SSH_HOST_CHECK[@]}" -J root@"${node_nancy}" root@10.1.8.7 "ouigo-client backup-this-node"
 }
 
 persist_ssh_public_key() {
@@ -1258,6 +1251,13 @@ is_deployment_running() {
 parse_cli_args "$@"
 parse_config_file
 load_default_config
+
+
+OUIGO_CLIENT_SRC="$(
+  declare -f ouigo_client | \
+          head -n -1 | tail -n +3 | \
+          sed "s/\${OUIGO_G5K_USERNAME}/${OUIGO_G5K_USERNAME}/g"
+)"
 
 check_ouigo_version
 
