@@ -1,5 +1,5 @@
 OUIGO_COMPATIBLE_VERSION=0.0.1
 OUIGO_G5K_USERNAME=dvader
 OUIGO_G5K_ACCESS_LOCATION=nancy
-OUIGO_SSH_PRIVATE_KEY=./scionlab_rsa
-OUIGO_SSH_PUBLIC_KEY=./scionlab_rsa.pub
+OUIGO_SSH_PRIVATE_KEY=./scionlab_grid5000_frontend_rsa
+OUIGO_SSH_PUBLIC_KEY=./scionlab_grid5000_frontend_rsa.pub
