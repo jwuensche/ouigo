@@ -541,7 +541,7 @@ distribute_ssh_key() {
     sites=(nancy lille lyon luxembourg nantes rennes grenoble sophia)
     if ! is_running_on_g5k
     then
-        jump=("-o ProxyJump=${OUIGO_G5K_USERNAME}@access.grid5000.fr")
+        jump=(-o "ProxyJump=${OUIGO_G5K_USERNAME}@access.grid5000.fr")
     fi
 
     for site in "${sites[@]}"
