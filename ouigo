@@ -541,17 +541,17 @@ distribute_ssh_key() {
     sites=(nancy lille lyon luxembourg nantes rennes grenoble sophia)
     if ! is_running_on_g5k
     then
-        jump="-o ProxyJump=${OUIGO_G5K_USERNAME}@access.grid5000.fr"
+        jump=("-o ProxyJump=${OUIGO_G5K_USERNAME}@access.grid5000.fr")
     fi
 
     for site in "${sites[@]}"
     do
-        if ssh "${jump}" "${OUIGO_G5K_USERNAME}@${site}" "test -r scionlab.pub" && [[ $(sha1sum "${OUIGO_SSH_PUBLIC_KEY}") != $(ssh "${jump}" "${OUIGO_G5K_USERNAME}@${site}" "sha1sum scionlab.pub") ]]
+        if ssh "${jump[@]}" "${OUIGO_G5K_USERNAME}@${site}" "test -r scionlab.pub" && [[ $(sha1sum "${OUIGO_SSH_PUBLIC_KEY}") != $(ssh "${jump}" "${OUIGO_G5K_USERNAME}@${site}" "sha1sum scionlab.pub") ]]
         then
             logerror "Keys in Grid5000 ${site} do not match with your current key, please check if you cleared first or using the correct keys for this deployment"
         fi
-        scp "${jump}" "${OUIGO_SSH_PRIVATE_KEY}" "${OUIGO_G5K_USERNAME}@${site}:scionlab.prv" > /dev/null
-        scp "${jump}" "${OUIGO_SSH_PUBLIC_KEY}" "${OUIGO_G5K_USERNAME}@${site}:scionlab.pub" > /dev/null
+        scp "${jump[@]}" "${OUIGO_SSH_PRIVATE_KEY}" "${OUIGO_G5K_USERNAME}@${site}:scionlab.prv" > /dev/null
+        scp "${jump[@]}" "${OUIGO_SSH_PUBLIC_KEY}" "${OUIGO_G5K_USERNAME}@${site}:scionlab.pub" > /dev/null
     done
 }
 
@@ -562,6 +562,7 @@ setup() {
     rm -rf "${CACHE_DIR}"
     mkdir -p "${CACHE_DIR}"
 
+    loginfo "Persisting ssh key in grid5000 account"
     persist_ssh_public_key "$(cat scionlab.pub)"
 
     reserve_job nancy gros 1293 1391 4
@@ -841,6 +842,12 @@ clear() {
     local job_id
     local location
 
+    if ! is_deployment_running
+    then
+        loginfo "No deployment is running at the moment, clearing ssh keys"
+        erase_ssh_keys
+    fi
+
     cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "No machines have been setup yet"
 
     loginfo "Looking for running machines..."
@@ -936,46 +943,33 @@ ensure_running_on_g5k() {
     fi
 }
 
-check_keys() {
-    if [[ "${OUIGO_ACTION}" == "setup" ]] || [[ "${OUIGO_ACTION}" == "backup" ]]
+generate_keys() {
+    if is_running_on_g5k && ! is_deployment_running
     then
-        if ! stat "${OUIGO_SSH_PRIVATE_KEY}" > /dev/null 2>&1 && ! stat "${OUIGO_SSH_PUBLIC_KEY}" > /dev/null 2>&1
+        if test -e scionlab.pub && test -e scionlab.prv
         then
-            logwarn "No local deployment key has been found, one will be generated now"
-            ssh-keygen -q -C "scionlab@gri5000deployment" -t rsa -b 8192 -f "${OUIGO_SSH_PRIVATE_KEY}" -N ""
-            distribute_ssh_key
-        fi
-
-        if [[ "${OUIGO_ACTION}" == "setup" ]] && ! stat "${OUIGO_SSH_PRIVATE_KEY}" > /dev/null 2>&1
-        then
-            logwarn "New setup requested, triggering build of new deployment key"
-            ssh-keygen -q -C "scionlab@gri5000deployment" -t rsa -b 8192 -f "${OUIGO_SSH_PRIVATE_KEY}" -N ""
-            distribute_ssh_key
-        fi
-
-        if ! stat "${OUIGO_SSH_PRIVATE_KEY}" > /dev/null 2>&1
-        then
-            logerror "Only public key found, are you missing the private one?"
             return
         fi
+        loginfo "New setup requested, triggering build of new deployment key"
+        ssh-keygen -q -C "scionlab@gri5000deployment" -t rsa -b 8192 -f scionlab -N ""
+        mv scionlab scionlab.prv
+        OUIGO_SSH_PUBLIC_KEY=scionlab.pub
+        OUIGO_SSH_PRIVATE_KEY=scionlab.prv
+        distribute_ssh_key
+        return
+    fi
 
-        if ! stat "${OUIGO_SSH_PUBLIC_KEY}" > /dev/null 2>&1
-        then
-            logerror "Only private key found, are you missing the public one?"
-            return
-        fi
+    if ! is_running_on_g5k && test -r "${OUIGO_SSH_PRIVATE_KEY}" && test -r "${OUIGO_SSH_PUBLIC_KEY}"
+    then
+        logerror "There already exists a deployment key pair, aborting to prevent data loss..."
+    fi
 
-        if [[ ! -r "${OUIGO_SSH_PRIVATE_KEY}" ]]
-        then
-            logerror "No readable private ssh key under path ${OUIGO_SSH_PRIVATE_KEY}"
-            return
-        fi
-
-        if [[ ! -r "${OUIGO_SSH_PUBLIC_KEY}" ]]
-        then
-            logerror "No readable public ssh key under path ${OUIGO_SSH_PRIVATE_KEY}"
-            return
-        fi
+    if ! is_running_on_g5k && ! test -r "${OUIGO_SSH_PRIVATE_KEY}" && ! test -r "${OUIGO_SSH_PUBLIC_KEY}"
+    then
+        loginfo "New setup requested locally, triggering build of new deployment key"
+        ssh-keygen -q -C "scionlab@gri5000deployment" -t rsa -b 8192 -f "${OUIGO_SSH_PRIVATE_KEY}" -N ""
+        distribute_ssh_key
+        return
     fi
 }
 
@@ -1099,15 +1093,24 @@ EOF
               "scionlab-admins@sympa.ethz.ch"
 }
 
+is_deployment_running() {
+    stat "${CACHE_DIR}" > /dev/null 2>&1
+}
+
 parse_cli_args "$@"
 parse_config_file
 load_default_config
 
 check_ouigo_version
-check_keys
 
 case "${OUIGO_ACTION}" in
     setup)
+        # Check for keys which might exists and if not generate them and distribute to other locations
+        if is_running_on_g5k && is_deployment_running
+        then
+            logerror "Deployment is currently active, a setup may only be executed at the beginning of a deployment. Use \"ouigo info\" to get information about the current jobs."
+        fi
+        generate_keys
         ensure_running_on_g5k "$@"
         setup
         ;;
