@@ -149,6 +149,7 @@ load_default_config() {
     set_if_undefined OUIGO_SSH_PRIVATE_KEY "./scionlab_grid5000_frontend_rsa"
     set_if_undefined OUIGO_SSH_PUBLIC_KEY "./scionlab_grid5000_frontend_rsa.pub"
     set_if_undefined OUIGO_COMPATIBLE_VERSION "${OUIGO_VERSION}"
+    set_if_undefined OUIGO_PERSISTENT_PATHS ""
 }
 
 __log__ () {
@@ -203,7 +204,7 @@ __spin__() {
     done
 }
 
-SPIN_PID=
+SPIN_PID=""
 spin() {
     case "$1" in
         start)
@@ -433,6 +434,36 @@ EOF
         loginfo "Done."
     }
 
+    oc_persist_this_node() {
+        loginfo "Persisting this node..."
+
+        readarray \
+            -d ":" \
+            -t PARSED_PERSISTENT_PATHS <<< "${OUIGO_PERSISTENT_PATHS}"
+
+        for path in "${PARSED_PERSISTENT_PATHS[@]}"
+        do
+            loginfo "Persisting '${path}'..."
+        done
+
+        tar cfz /tmp/persist.tgz "${PARSED_PERSISTENT_PATHS[@]}"
+
+        # default endlocation
+        endlocation=frontend
+        args=()
+
+        # Check for connectivity, atm we cannot connect directly to one
+        # machine in lille
+        if ! ping -c 1 frontend >/dev/null 2>&1
+        then
+            args=(-o "ProxyJump=root@10.1.8.9")
+            endlocation=lille
+        fi
+
+        loginfo "Copying persistent archive to frontend..."
+        scp "${SSH_HOST_CHECK[@]}" "${args[@]}" /tmp/persist.tgz "${OUIGO_G5K_USERNAME}@${endlocation}:"
+    }
+
     oc_parse_cli_args "$@"
 
     case "${OUIGO_CLIENT_ACTION}" in
@@ -441,6 +472,9 @@ EOF
             ;;
         backup-this-node)
             oc_backup_this_node
+            ;;
+        persist-this-node)
+            oc_persist_this_node
             ;;
         *)
             echo "$0: Invalid action \`${OUIGO_CLIENT_ACTION}\`. Use \`--help\` to see a list of available actions!"
@@ -1252,11 +1286,11 @@ parse_cli_args "$@"
 parse_config_file
 load_default_config
 
-
 OUIGO_CLIENT_SRC="$(
   declare -f ouigo_client | \
           head -n -1 | tail -n +3 | \
-          sed "s/\${OUIGO_G5K_USERNAME}/${OUIGO_G5K_USERNAME}/g"
+          sed "s/\${OUIGO_G5K_USERNAME}/${OUIGO_G5K_USERNAME}/g" | \
+          sed "s/\${OUIGO_PERSISTENT_PATHS}/${OUIGO_PERSISTENT_PATHS}/g"
 )"
 
 check_ouigo_version
