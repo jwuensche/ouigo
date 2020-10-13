@@ -387,6 +387,12 @@ Copyright (c) 2020 - Johannes Wünsche, Fin Christensen"
         useradd scionlab
         usermod -aG sudo scionlab
 
+        loginfo "Creating homedir for scionlab user on ${HOSTNAME}..."
+        chown -R scionlab /home/scionlab
+
+        loginfo "Changing default shell for scionlab user on ${HOSTNAME}"
+        chsh -s /bin/bash scionlab
+
         loginfo "Granting scionlab user root access on ${HOSTNAME}..."
         echo 'scionlab ALL=(ALL) NOPASSWD: ALL' >> /etc/sudoers
 
@@ -503,13 +509,9 @@ EOF
 setup_machine() {
     # 1 - machine address/name
     scp "${SSH_HOST_CHECK[@]}" "$HOME/scionlab.prv" "$HOME/scionlab.pub" "root@${1}:"
+    scp /tmp/ouigo-client "root@${1}:/usr/bin/ouigo-client"
     ssh -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no" "root@$1" "
-    echo \"#! /bin/bash
-${OUIGO_CLIENT_SRC}\" > /usr/bin/ouigo-client
     chmod +x /usr/bin/ouigo-client
-    chown -R scionlab /home/scionlab
-    chsh -s /bin/bash scionlab
-
     ouigo-client setup
 " > /dev/null
 }
@@ -1310,12 +1312,7 @@ parse_cli_args "$@"
 parse_config_file
 load_default_config
 
-OUIGO_CLIENT_SRC="$(
-  declare -f ouigo_client | \
-          head -n -1 | tail -n +3 | \
-          sed "s/\${OUIGO_G5K_USERNAME}/${OUIGO_G5K_USERNAME}/g" | \
-          sed "s/\${OUIGO_PERSISTENT_PATHS}/${OUIGO_PERSISTENT_PATHS}/g"
-)"
+declare -f ouigo_client | head -n -1 | tail -n +3 | sed "s/\${OUIGO_G5K_USERNAME}/${OUIGO_G5K_USERNAME}/g" | sed "s/\${OUIGO_PERSISTENT_PATHS}/${OUIGO_PERSISTENT_PATHS}/g" > /tmp/ouigo-client
 
 check_ouigo_version
 
