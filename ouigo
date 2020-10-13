@@ -19,6 +19,8 @@ OUIGO_CONFIG_FILE="./ouigo.conf"
 SSH_HOST_CHECK=(-q -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no")
 OUIGO_VERSION=0.0.1
 
+G5K_FRONTENDS=(grenoble luxembourg lille lyon nancy nantes rennes sophia)
+
 help() {
     echo -e "$0 - Ouigo Amigo! Run long taking jobs on the Grid5000 default queue!
 
@@ -319,10 +321,12 @@ Available options:
 
 Available actions:
   setup              prepares this machine for use in the ScionLab network
-  backup-this-nodes  trigger a manual backup of all the running machines.
-                      > this will create a bootable image on the grid5000
+  backup-this-node   trigger a manual backup of all the running machines.
+                      > this will create a bootable image on the Grid5000
                         frontend which is used to spin-up new machines
                         when this machine runs EOL.
+  persist-this-node  persist all configured persistent paths to the
+                     Grid5000 frontends and create a new bootimage from it
 
 Copyright (c) 2020 - Johannes Wünsche, Fin Christensen"
     }
@@ -407,10 +411,12 @@ EOF
     }
 
     oc_backup_this_node() {
+        # TODO for now only a single node per frontend is allowed as each frontend manages the backup, image, and persistence of only one node
+
         # Create image and copy to frontend machine
         loginfo "Creating image..."
-        rm -rf /tmp/image.tgz
-        tgz-g5k -f /tmp/image.tgz
+        rm -rf /tmp/backup.tgz
+        tgz-g5k -f /tmp/backup.tgz
 
         # default endlocation
         endlocation=frontend
@@ -425,16 +431,22 @@ EOF
         fi
 
         loginfo "Copying image to frontend..."
+        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "mkdir -p ~/.local/share/ouigo"
         # Make ssh options available, for e.g. identity file
-        scp "${SSH_HOST_CHECK[@]}" "${args[@]}" /tmp/scionlab.tgz "${OUIGO_G5K_USERNAME}@${endlocation}:"
+        scp "${SSH_HOST_CHECK[@]}" "${args[@]}" /tmp/backup.tgz "${OUIGO_G5K_USERNAME}@${endlocation}:~/.local/share/ouigo"
+        # make the backup the current boot-image
+        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "cp ~/.local/share/ouigo/backup.tgz ~/.local/share/ouigo/image.tgz"
+
         # Replace old image with new one
         # We'll need a key for that, gonna use my account for the time being
         loginfo "Refreshing kaenv3 entry..."
-        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "kaenv3 -d scionlab; kaenv3 -a scionlab.env"
+        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "kaenv3 -d ouigo; kaenv3 -a ouigo.env"
         loginfo "Done."
     }
 
     oc_persist_this_node() {
+        # TODO for now persistence is only supported for one node per frontend
+
         loginfo "Persisting this node..."
 
         readarray \
@@ -461,7 +473,12 @@ EOF
         fi
 
         loginfo "Copying persistent archive to frontend..."
-        scp "${SSH_HOST_CHECK[@]}" "${args[@]}" /tmp/persist.tgz "${OUIGO_G5K_USERNAME}@${endlocation}:"
+        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "mkdir -p ~/.local/share/ouigo"
+        scp "${SSH_HOST_CHECK[@]}" "${args[@]}" /tmp/persist.tgz "${OUIGO_G5K_USERNAME}@${endlocation}:~/.local/share/ouigo"
+        loginfo "Creating new bootimage from persistent archive..."
+        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "cd ~/.local/share/ouigo && cp -a backup.tgz image.tgz && tar Af image.tgz persist.tgz"
+
+        loginfo "Done persisting node $(hostname)!"
     }
 
     oc_parse_cli_args "$@"
@@ -510,7 +527,8 @@ wait_for_environment() {
         then
             spin stop
             location=$(echo "$1" | cut -d '_' -f 2)
-            if ! stat "${HOME}/scionlab.tgz" > /dev/null 2>&1
+            # FIXME
+            if ! stat "${HOME}/.local/share/ouigo/image.tgz" > /dev/null 2>&1
             then
                 loginfo "\nConnecting possible, setting up..."
                 setup_machine "$1"
@@ -536,7 +554,7 @@ reserve_job() {
 
     # Get nodes and check availability there is a dummy `sleep infinity` command to keep the job alive
     # the $OAR_NODEFILE has to be evaluated on the machine itself, so disregard the shellcheck warning here
-    if ! ssh "${SSH_HOST_CHECK[@]}" "${USER}@${1}" stat scionlab.tgz >/dev/null 2>&1
+    if ! ssh "${SSH_HOST_CHECK[@]}" "${USER}@${1}" stat "${HOME}/.local/share/ouigo/image.tgz" >/dev/null 2>&1
     then
         # No image created before
         node_result=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
@@ -546,7 +564,7 @@ reserve_job() {
         # Image already exists, using that one
         node_result=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
                         -X POST -H 'Content-Type: application/json' \
-                        -d "{\"resources\":\"{eth_count>=$5}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e scionlab -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
+                        -d "{\"resources\":\"{eth_count>=$5}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ouigo -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
     fi
 
     nodeid=$(echo "${node_result}" | jq '.uid')
@@ -771,17 +789,17 @@ ip route add 10.1.8.0/24 dev eno2"
     ssh "${SSH_HOST_CHECK[@]}" root@"${node_nancy}" "ip addr add 10.1.8.9 dev enp3s0f1 && ip link set dev enp3s0f1 up && sleep 1 && ip route add 10.1.8.0/24 dev enp3s0f1 || true && ip addr add 10.1.8.9 dev enp129s0f1 && ip link set dev enp129s0f1 up && sleep 1 && ip route add 10.1.8.0/24 dev enp129s0f1" || true
     get_cron
 
-    local scionlab_env
-    scionlab_env="\"---
-name: scionlab
+    local ouigo_env
+    ouigo_env="\"---
+name: ouigo
 version: 2020091021
-description: base image scionlab
-author: support@scionlab
+description: ouigo image consisting of latest backup and persistent snapshot
+author: support@ouigo
 visibility: private
 destructive: false
 os: linux
 image:
-  file: /home/${OUIGO_G5K_USERNAME}/scionlab.tgz
+  file: /home/${OUIGO_G5K_USERNAME}/.local/share/ouigo/image.tgz
   kind: tar
   compression: gzip
 postinstalls:
@@ -794,9 +812,11 @@ boot:
 filesystem: ext4
 partition_type: 131
 multipart: false\""
-    # We want client side escaping here
-    ssh "${SSH_HOST_CHECK[@]}" "${OUIGO_G5K_USERNAME}@lille" "echo ${scionlab_env} > scionlab.env"
-    ssh "${SSH_HOST_CHECK}" "${OUIGO_G5K_USERNAME}@nancy" "echo ${scionlab_env} > scionlab.env"
+    for frontend in "${G5K_FRONTENDS[@]}"
+    do
+        # We want client side escaping here
+        ssh "${SSH_HOST_CHECK[@]}" "${OUIGO_G5K_USERNAME}@${frontend}" "mkdir -p ~/.local/share/ouigo; echo ${ouigo_env} > ~/.local/share/ouigo/ouigo.env"
+    done
 }
 
 get_cron() {
@@ -875,7 +895,6 @@ extend_job() {
         if [[ "$(echo "${job_file}" | grep -c node)" == 1 ]]
         then
             name="$(head -n 1 < "${job_file}")"
-            # ssh root@"$name" tgz-g5k > "job_$1.tgz"
             recreate_machine "${job_file}"
             get_cron
         else
@@ -933,6 +952,7 @@ recreate_machine() {
     local machine
     local location
     local node
+    local old_node
 
     cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "No machines have been setup yet"
     vlans=$(tail -n +2 "$1")
@@ -942,7 +962,11 @@ recreate_machine() {
     snd=$(echo "${vlans}" | sed -n '2p')
     machine="$(head -n 1 < "$1")"
     location=$(echo "$1" | cut -d '_' -f 2)
+    old_node=$(get_node "${location}")
     # jobid=$(echo "$1" | cut -d '_' -f 3)
+
+    loginfo "Persisting machine ${machine}..."
+    ssh "${SSH_HOST_CHECK[@]}" "root@${old_node}" "ouigo-client persist-this-node"
 
     if [[ "${location}" == "nancy" ]]
     then
