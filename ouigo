@@ -562,11 +562,13 @@ reserve_job() {
     if ! ssh "${SSH_HOST_CHECK[@]}" "${USER}@${1}" stat "${HOME}/.local/share/ouigo/image.tgz" >/dev/null 2>&1
     then
         # No image created before
+        loginfo "No image has been found, using the local ubuntu image for initial deployment..."
         node_result=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
                         -X POST -H 'Content-Type: application/json' \
                         -d "{\"resources\":\"{eth_count>=$5}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ubuntu1804-x64-min -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
     else
         # Image already exists, using that one
+        loginfo "Backup image has been found, using the latest backup image..."
         node_result=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
                         -X POST -H 'Content-Type: application/json' \
                         -d "{\"resources\":\"{eth_count>=$5}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ouigo -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
@@ -1196,7 +1198,7 @@ backup_all_nodes() {
     loginfo "Starting backup of all nodes"
     loginfo "Backing up of node in nancy "
     ssh "${SSH_HOST_CHECK[@]}" root@"${node_nancy}" "ouigo-client backup-this-node"
-    loginfo "\nBackup up of node in lille"
+    loginfo "Backup up of node in lille"
     # Connect to the second machine this is stationary for this setup
     # If you choose another machine with more interface this jump host
     # is not required.
@@ -1315,7 +1317,7 @@ parse_cli_args "$@"
 parse_config_file
 load_default_config
 
-declare -f ouigo_client | head -n -1 | tail -n +3 | sed "s/\${OUIGO_G5K_USERNAME}/${OUIGO_G5K_USERNAME}/g" | sed "s/\${OUIGO_PERSISTENT_PATHS}/${OUIGO_PERSISTENT_PATHS}/g" > /tmp/ouigo-client
+declare -f ouigo_client | head -n -1 | tail -n +3 | sed "s/\${OUIGO_G5K_USERNAME}/${OUIGO_G5K_USERNAME}/g" | sed "s|\${OUIGO_PERSISTENT_PATHS}|${OUIGO_PERSISTENT_PATHS}|g" > /tmp/ouigo-client
 
 check_ouigo_version
 
