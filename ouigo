@@ -388,6 +388,7 @@ Copyright (c) 2020 - Johannes Wünsche, Fin Christensen"
         usermod -aG sudo scionlab
 
         loginfo "Creating homedir for scionlab user on ${HOSTNAME}..."
+        mkdir /home/scionlab
         chown -R scionlab /home/scionlab
 
         loginfo "Changing default shell for scionlab user on ${HOSTNAME}"
@@ -426,7 +427,7 @@ EOF
 
         # default endlocation
         endlocation=frontend
-        args=""
+        args=()
 
         # Check for connectivity, atm we cannot connect directly to one
         # machine in lille
