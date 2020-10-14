@@ -434,6 +434,8 @@ EOF
         if ! ping -c 1 frontend >/dev/null 2>&1
         then
             args=(-o "ProxyJump=root@10.1.8.9")
+            # Ensure that the jump host key is in the known hosts for further progress
+            ssh "${SSH_HOST_CHECK[@]}" root@10.1.8.9
             endlocation=lille
         fi
 
