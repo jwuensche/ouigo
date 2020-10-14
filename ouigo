@@ -447,7 +447,7 @@ EOF
         # Replace old image with new one
         # We'll need a key for that, gonna use my account for the time being
         loginfo "Refreshing kaenv3 entry..."
-        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "kaenv3 -d ouigo; kaenv3 -a ouigo.env"
+        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "kaenv3 -d ouigo; kaenv3 -a ~/.local/share/ouigo/ouigo.env"
         loginfo "Done."
     }
 
@@ -484,6 +484,8 @@ EOF
         scp "${SSH_HOST_CHECK[@]}" "${args[@]}" /tmp/persist.tgz "${OUIGO_G5K_USERNAME}@${endlocation}:~/.local/share/ouigo"
         loginfo "Creating new bootimage from persistent archive..."
         ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "cd ~/.local/share/ouigo && cp -a backup.tgz image.tgz && tar Af image.tgz persist.tgz"
+        loginfo "Refreshing kaenv3 entry..."
+        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "kaenv3 -d ouigo; kaenv3 -a ~/.local/share/ouigo/ouigo.env"
 
         loginfo "Done persisting node $(hostname)!"
     }
