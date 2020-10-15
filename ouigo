@@ -434,8 +434,9 @@ EOF
         if ! ping -c 1 frontend >/dev/null 2>&1
         then
             args=(-o "ProxyJump=root@10.1.8.9")
-            # Ensure that the jump host key is in the known hosts for further progress
-            ssh "${SSH_HOST_CHECK[@]}" root@10.1.8.9
+            # I am here to ensure that the host key of the jump host is known
+            ssh -o StrictHostKeyChecking=no root@10.1.8.9 "true" || logerror "Connection to remote machine at IP 10.1.8.9 was not possible, aborting..."
+            # Yay, I did my part!
             endlocation=lille
         fi
 
@@ -478,6 +479,9 @@ EOF
         if ! ping -c 1 frontend >/dev/null 2>&1
         then
             args=(-o "ProxyJump=root@10.1.8.9")
+            # I am here to ensure that the host key of the jump host is known
+            ssh -o StrictHostKeyChecking=no root@10.1.8.9 "true" || logerror "Connection to remote machine at IP 10.1.8.9 was not possible, aborting..."
+            # Yay, I did my part!
             endlocation=lille
         fi
 
