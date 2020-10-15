@@ -541,6 +541,9 @@ wait_for_environment() {
                 setup_machine "$1"
             else
                 loginfo "\nConnection possbile, skipping setup because already existing image has been used"
+                loginfo "Distributing new deployment, on to machine..."
+                scp "${SSH_HOST_CHECK[@]}" "$HOME/scionlab.prv" "$HOME/scionlab.pub" "root@${1}:"
+                ssh "${SSH_HOST_CHECK[@]}" "root@${1}" "mv scionlab.prv ~/.ssh/id_rsa"
             fi
 
             break
