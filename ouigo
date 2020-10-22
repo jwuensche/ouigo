@@ -461,14 +461,14 @@ EOF
 
         readarray \
             -d ":" \
-            -t PARSED_PERSISTENT_PATHS <<< "${OUIGO_PERSISTENT_PATHS}"
+            -t PARSED_PERSISTENT_PATHS < <(printf "%s" "${OUIGO_PERSISTENT_PATHS}")
 
         for path in "${PARSED_PERSISTENT_PATHS[@]}"
         do
             loginfo "Persisting '${path}'..."
         done
 
-        tar cfz /tmp/persist.tgz "${PARSED_PERSISTENT_PATHS[@]}"
+        tar cfz /tmp/persist.tgz "${PARSED_PERSISTENT_PATHS[@]}" || true
 
         # default endlocation
         endlocation=frontend
@@ -489,7 +489,7 @@ EOF
         ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "mkdir -p ~/.local/share/ouigo"
         scp "${SSH_HOST_CHECK[@]}" "${args[@]}" /tmp/persist.tgz "${OUIGO_G5K_USERNAME}@${endlocation}:~/.local/share/ouigo"
         loginfo "Creating new bootimage from persistent archive..."
-        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "cd ~/.local/share/ouigo && cp -a backup.tgz image.tgz && tar Af image.tgz persist.tgz"
+        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "cd ~/.local/share/ouigo && cp -a backup.tgz image.tgz && gunzip -f image.tgz && gunzip -f persist.tgz && tar Af image.tar persist.tar && gzip -f image.tar && mv image.tar.gz image.tgz"
         loginfo "Refreshing kaenv3 entry..."
         ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "kaenv3 -d ouigo; kaenv3 -a ~/.local/share/ouigo/ouigo.env"
 
@@ -578,6 +578,18 @@ reserve_job() {
     else
         # Image already exists, using that one
         loginfo "Backup image has been found, using the latest backup image..."
+        loginfo "Adding keys to backup image..."
+        ssh "${OUIGO_G5K_USERNAME}@$1" "gunzip ~/.local/share/ouigo/image.tgz
+        tar xf ~/.local/share/ouigo/image.tar './root'
+        cp scionlab.pub ./root/scionlab.pub
+        cp scionlab.prv ./root/.ssh/id_rsa
+        cp .ssh/authorized_keys ./root/.ssh/authorized_keys
+        tar cf ~/.local/share/ouigo/keys.tar ~/root
+        tar Af ~/.local/share/ouigo/image.tar ~/.local/share/ouigo/keys.tar
+        gzip ~/.local/share/ouigo/image.tar
+        mv ~/.local/share/ouigo/image.tar.gz ~/.local/share/ouigo/image.tgz
+        kaenv3 -d ouigo
+        kaenv3 -a ~/.local/share/ouigo/ouigo.env"
         node_result=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
                         -X POST -H 'Content-Type: application/json' \
                         -d "{\"resources\":\"{eth_count>=$5}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ouigo -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
@@ -910,10 +922,12 @@ extend_job() {
 
         if [[ "$(echo "${job_file}" | grep -c node)" == 1 ]]
         then
+            loginfo "Recreating machine"
             name="$(head -n 1 < "${job_file}")"
             recreate_machine "${job_file}"
             get_cron
         else
+            loginfo "Recreating vlan"
             recreate_vlan "${job_file}"
             get_cron
         fi
@@ -982,8 +996,24 @@ recreate_machine() {
     # jobid=$(echo "$1" | cut -d '_' -f 3)
 
     loginfo "Persisting machine ${machine}..."
-    ssh "${SSH_HOST_CHECK[@]}" "root@${old_node}" "ouigo-client persist-this-node"
+    case "${location}" in
+        "nancy")
+            loginfo "Location of node is nancy, persisting directly..."
+            ssh "${SSH_HOST_CHECK[@]}" "root@${old_node}" "ouigo-client persist-this-node"
+            ;;
+        "lille")
+            # This has the possibility to fail if no node in nancy exist at the moment. Solution: Connect to default network and just try?
+            # Otherwise we may have data loss here
+            loginfo "Location of node is lille, trying jump host to persist..."
+            node_nancy=$(get_node nancy)
+            ssh "${SSH_HOST_CHECK[@]}" -o "root@{node_nancy}"  "root@10.1.8.7" "ouigo-client persist-this-node"
+            ;;
+        *)
+            logerror "Location ${location} is not recognized"
+            ;;
+    esac
 
+    loginfo "Removing node from network..."
     if [[ "${location}" == "nancy" ]]
     then
       remove_network "${machine}" "eth1"
@@ -997,10 +1027,12 @@ recreate_machine() {
     # delete_job "${jobid}" "${location}"
 
     rm "$1"
+    loginfo "Reserving new machine..."
     reserve_job "${location}" "" "${fst}" "${snd}" "${eth}"
 
     node=$(get_node "${location}")
 
+    loginfo "Recreating network attachments..."
     if [[ "${location}" == "nancy" ]]
     then
         network_machine "${node}" "eth1" 1293
@@ -1015,6 +1047,7 @@ sleep 1
 ip route add 10.1.8.0/24 dev eno2"
         network_machine "${node}" "" 1294
     fi
+    loginfo "New Machine running!"
 }
 
 recreate_vlan() {
