@@ -578,18 +578,6 @@ reserve_job() {
     else
         # Image already exists, using that one
         loginfo "Backup image has been found, using the latest backup image..."
-        loginfo "Adding keys to backup image..."
-        ssh "${OUIGO_G5K_USERNAME}@$1" "gunzip ~/.local/share/ouigo/image.tgz
-        tar xf ~/.local/share/ouigo/image.tar './root'
-        cp scionlab.pub ./root/scionlab.pub
-        cp scionlab.prv ./root/.ssh/id_rsa
-        cp .ssh/authorized_keys ./root/.ssh/authorized_keys
-        tar cf ~/.local/share/ouigo/keys.tar ~/root
-        tar Af ~/.local/share/ouigo/image.tar ~/.local/share/ouigo/keys.tar
-        gzip ~/.local/share/ouigo/image.tar
-        mv ~/.local/share/ouigo/image.tar.gz ~/.local/share/ouigo/image.tgz
-        kaenv3 -d ouigo
-        kaenv3 -a ~/.local/share/ouigo/ouigo.env"
         node_result=$(curl -s https://api.grid5000.fr/3.0/sites/"$1"/jobs \
                         -X POST -H 'Content-Type: application/json' \
                         -d "{\"resources\":\"{eth_count>=$5}/nodes=1,walltime=1\",\"command\":\"kadeploy3 -k -e ouigo -f \$OAR_NODEFILE; sleep infinity\", \"name\":\"machine_$3_$4\", \"types\":[\"deploy\"]}")
@@ -604,9 +592,9 @@ reserve_job() {
     loginfo "Got machine ${node_name} in $1 (Job ID ${nodeid})"
 
     loginfo "Setting up vlan $3 for machine ${node_name}"
-    vlan_manager "$3"
-    loginfo "Setting up vlan $4 for machines"
-    vlan_manager "$4"
+    vlan_manager "$3" || true
+    loginfo "Setting up vlan $4 for machine ${node_name}"
+    vlan_manager "$4" || true
 
     loginfo "Setting up machine ${node_name}"
     wait_for_environment "${node_name}"
@@ -641,7 +629,7 @@ sophia"
             then
                 kvl=$(cat "${vlan}")
                 loginfo "VLAN ID $1 is already assigned to kavlan ${kvl}. Skipping..."
-                return 1
+                return 5
             fi
         fi
     done
@@ -786,6 +774,25 @@ distribute_ssh_key() {
     done
 }
 
+update_keys_in_backup() {
+    # 1 - location string
+    if ssh "$1" "test -e .local/share/ouigo/image.tgz"
+    then
+        loginfo "Adding keys to backup image..."
+        ssh "${OUIGO_G5K_USERNAME}@$1" "gunzip ~/.local/share/ouigo/image.tgz
+        tar xf ~/.local/share/ouigo/image.tar './root'
+        cp scionlab.pub ./root/scionlab.pub
+        cp scionlab.prv ./root/.ssh/id_rsa
+        cp .ssh/authorized_keys ./root/.ssh/authorized_keys
+        tar cf ~/.local/share/ouigo/keys.tar ~/root
+        tar Af ~/.local/share/ouigo/image.tar ~/.local/share/ouigo/keys.tar
+        gzip ~/.local/share/ouigo/image.tar
+        mv ~/.local/share/ouigo/image.tar.gz ~/.local/share/ouigo/image.tgz
+        kaenv3 -d ouigo
+        kaenv3 -a ~/.local/share/ouigo/ouigo.env"
+    fi
+}
+
 setup() {
     local node_nancy
     local node_lille
@@ -795,6 +802,9 @@ setup() {
 
     loginfo "Persisting ssh key in grid5000 account"
     persist_ssh_public_key "$(cat scionlab.pub)"
+
+    update_keys_in_backup lille
+    update_keys_in_backup nancy
 
     reserve_job nancy gros 1293 1391 4
     reserve_job lille chiclet 1294 1390 2
@@ -999,7 +1009,16 @@ recreate_machine() {
     case "${location}" in
         "nancy")
             loginfo "Location of node is nancy, persisting directly..."
-            ssh "${SSH_HOST_CHECK[@]}" "root@${old_node}" "ouigo-client persist-this-node"
+            if ! ssh "${SSH_HOST_CHECK[@]}" "root@${old_node}" "ouigo-client persist-this-node"
+            then
+                logwarn "Could not reach machine or process errored while trying!"
+                if test -e ~/.local/share/ouigo/image.tgz
+                then
+                    logwarn "Using old perisistent image. Be aware that some changes might be lost."
+                else
+                    logerrror "Could not perform persistent backup, but there also exists no previous state. Aborting..."
+                fi
+            fi
             ;;
         "lille")
             # This has the possibility to fail if no node in nancy exist at the moment. Solution: Connect to default network and just try?
