@@ -517,7 +517,7 @@ EOF
 
 setup_machine() {
     # 1 - machine address/name
-    scp "${SSH_HOST_CHECK[@]}" "$HOME/scionlab.prv" "$HOME/scionlab.pub" "root@${1}:"
+    scp "${SSH_HOST_CHECK[@]}" "${HOME}/scionlab.prv" "${HOME}/scionlab.pub" "root@${1}:"
     scp /tmp/ouigo-client "root@${1}:/usr/bin/ouigo-client"
     ssh -o "UserKnownHostsFile=/dev/null" -o "StrictHostKeyChecking=no" "root@$1" "
     chmod +x /usr/bin/ouigo-client
@@ -546,7 +546,7 @@ wait_for_environment() {
             else
                 loginfo "\nConnection possbile, skipping setup because already existing image has been used"
                 loginfo "Distributing new deployment, on to machine..."
-                scp "${SSH_HOST_CHECK[@]}" "$HOME/scionlab.prv" "$HOME/scionlab.pub" "root@${1}:"
+                scp "${SSH_HOST_CHECK[@]}" "${HOME}/scionlab.prv" "${HOME}/scionlab.pub" "root@${1}:"
                 ssh "${SSH_HOST_CHECK[@]}" "root@${1}" "mv scionlab.prv ~/.ssh/id_rsa"
             fi
 
@@ -672,7 +672,7 @@ reserve_vlan() {
 
     touch "${CACHE_DIR}/vlan_$2_$1_${vlan_job_id}"
     start=$(curl -s -X GET "https://api.grid5000.fr/stable/sites/$1/internal/oarapi/jobs/${vlan_job_id}.json" | jq '.scheduled_start')
-    while [[ "$start" == null ]]
+    while [[ "${start}" == null ]]
     do
         sleep 3
         start=$(curl -s -X GET "https://api.grid5000.fr/stable/sites/$1/internal/oarapi/jobs/${vlan_job_id}.json" | jq '.scheduled_start')
@@ -765,7 +765,7 @@ distribute_ssh_key() {
 
     for site in "${sites[@]}"
     do
-        if ssh "${SSH_HOST_CHECK[@]}" "${jump[@]}" "${OUIGO_G5K_USERNAME}@${site}" "test -r scionlab.pub" && [[ $(sha1sum "${OUIGO_SSH_PUBLIC_KEY}") != $(ssh "${jump}" "${OUIGO_G5K_USERNAME}@${site}" "sha1sum scionlab.pub") ]]
+        if ssh "${SSH_HOST_CHECK[@]}" "${jump[@]}" "${OUIGO_G5K_USERNAME}@${site}" "test -r scionlab.pub" && [[ $(sha1sum "${OUIGO_SSH_PUBLIC_KEY}") != $(ssh "${jump[@]}" "${OUIGO_G5K_USERNAME}@${site}" "sha1sum scionlab.pub") ]]
         then
             logerror "Keys in Grid5000 ${site} do not match with your current key, please check if you cleared first or using the correct keys for this deployment"
         fi
