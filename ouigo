@@ -445,12 +445,14 @@ EOF
         # Make ssh options available, for e.g. identity file
         scp "${SSH_HOST_CHECK[@]}" "${args[@]}" /tmp/backup.tgz "${OUIGO_G5K_USERNAME}@${endlocation}:~/.local/share/ouigo"
         # make the backup the current boot-image
-        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "cp ~/.local/share/ouigo/backup.tgz ~/.local/share/ouigo/image.tgz"
+        # Not sure if we want to do this here as this is not a complete image! We may get into a situation here where we are not able to create an image with the apropriate key inside.
+        # This leads to more edge cases -> removing it for now. New Boot images will be created on persistence checks
+        # ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "cp ~/.local/share/ouigo/backup.tgz ~/.local/share/ouigo/image.tgz"
 
         # Replace old image with new one
         # We'll need a key for that, gonna use my account for the time being
-        loginfo "Refreshing kaenv3 entry..."
-        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "kaenv3 -d ouigo; kaenv3 -a ~/.local/share/ouigo/ouigo.env"
+        # loginfo "Refreshing kaenv3 entry..."
+        # ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "kaenv3 -d ouigo; kaenv3 -a ~/.local/share/ouigo/ouigo.env"
         loginfo "Done."
     }
 
@@ -537,17 +539,14 @@ wait_for_environment() {
         if ssh "${SSH_HOST_CHECK[@]}" -o PasswordAuthentication=no -o BatchMode=yes root@"$1" 'if [[ $(uname -a) =~ "Ubuntu" ]]; then exit 0; else exit 1; fi' > /dev/null 2>/dev/null
         then
             spin stop
-            location=$(echo "$1" | cut -d '_' -f 2)
-            # FIXME
-            if ! stat "${HOME}/.local/share/ouigo/image.tgz" > /dev/null 2>&1
+            location=$(echo "$1" | cut -d '.' -f 2)
+            echo "ssh ${SSH_HOST_CHECK[*]} ${OUIGO_G5K_USERNAME}@${location} test -e ${HOME}/.local/share/ouigo/image.tgz"
+            if ! ssh "${SSH_HOST_CHECK[@]}" "${OUIGO_G5K_USERNAME}@${location}" "test -e ${HOME}/.local/share/ouigo/image.tgz" >/dev/null 2>&1
             then
                 loginfo "\nConnecting possible, setting up..."
                 setup_machine "$1"
             else
                 loginfo "\nConnection possbile, skipping setup because already existing image has been used"
-                loginfo "Distributing new deployment, on to machine..."
-                scp "${SSH_HOST_CHECK[@]}" "${HOME}/scionlab.prv" "${HOME}/scionlab.pub" "root@${1}:"
-                ssh "${SSH_HOST_CHECK[@]}" "root@${1}" "mv scionlab.prv ~/.ssh/id_rsa"
             fi
 
             break
@@ -568,7 +567,7 @@ reserve_job() {
 
     # Get nodes and check availability there is a dummy `sleep infinity` command to keep the job alive
     # the $OAR_NODEFILE has to be evaluated on the machine itself, so disregard the shellcheck warning here
-    if ! ssh "${SSH_HOST_CHECK[@]}" "${USER}@${1}" stat "${HOME}/.local/share/ouigo/image.tgz" >/dev/null 2>&1
+    if ! ssh "${SSH_HOST_CHECK[@]}" "${USER}@${1}" "test -e ${HOME}/.local/share/ouigo/image.tgz" >/dev/null 2>&1
     then
         # No image created before
         loginfo "No image has been found, using the local ubuntu image for initial deployment..."
