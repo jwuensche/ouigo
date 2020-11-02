@@ -49,9 +49,23 @@ Configuration file:
     VARIABLE=VALUE
 
 Available configuration variables:
+  OUIGO_COMPATIBLE_VERSION   the Ouigo version with which the configuration is
+                             compatible (default ${OUIGO_VERSION})
   OUIGO_G5K_ACCESS_LOCATION  the Grid5000 access location (default: lille)
   OUIGO_G5K_USERNAME         the Grid5000 username used for SSH access
                              (no default)
+  OUIGO_SSH_PRIVATE_KEY      the location of the private part of the ssh key
+                             pair used to manage the Ouigo deployment, will
+                             be generated if unavailable
+                             (default ./scionlab_grid5000_frontend_rsa)
+  OUIGO_SSH_PUBLIC_KEY       the location of the public part of the ssh key
+                             pair used to manage the Ouigo deployment, will
+                             be generated if unavailable
+                             (default ./scionlab_grid5000_frontend_rsa.pub)
+  OUIGO_PERSISTENT_PATHS     a colon separated list of paths (similar to the
+                             PATH variable) which will be saved to the Grid5000
+                             frontends everytime the nodes need to me moved to
+                             other machines (default \"\")
 
 Copyright (c) 2020 - Johannes Wünsche, Fin Christensen"
 }
