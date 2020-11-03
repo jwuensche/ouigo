@@ -1296,7 +1296,7 @@ persist_ssh_public_key() {
          --request PATCH \
          --header "Content-Type: application/json; charset=utf-8" \
          --header "Accept: application/json" \
-         --data "{\"ssh_public_key\":\"${current_ssh_keys}\\r\\n$1\"}" > /dev/null
+         --data "{\"ssh_public_key\":\"$(printf "%s\r\n%s" "${current_ssh_keys}" "$(cat scionlab.pub)" | sed ":a;N;\$!ba;s/\r/\\\r/g;s/\n/\\\n/g")\"}" > /dev/null
 }
 
 clear_ssh_public_key() {
@@ -1312,7 +1312,7 @@ clear_ssh_public_key() {
         # fucking crlf, remove it
         tr -d '\r' | \
         # filter for ssh key
-        grep -v "$1" | \
+        grep -v "$(cat scionlab.pub)" | \
         # restore crlf, cause g5k needs it
         sed "s/\$/$(printf '\\\r')/" | \
         # remove last newline (last byte of stream)
@@ -1324,7 +1324,7 @@ clear_ssh_public_key() {
          --request PATCH \
          --header "Content-Type: application/json; charset=utf-8" \
          --header "Accept: application/json" \
-         --data "{\"ssh_public_key\":\"${cleared_ssh_keys}\"}"
+         --data "{\"ssh_public_key\":\"$(printf "%s" "${cleared_ssh_keys}" | sed ":a;N;\$!ba;s/\r/\\\r/g;s/\n/\\\n/g")\"}"
 }
 
 send-email() {
