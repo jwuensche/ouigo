@@ -437,7 +437,8 @@ EOF
         # Create image and copy to frontend machine
         loginfo "Creating image..."
         rm -rf /tmp/backup.tgz
-        tgz-g5k -f /tmp/backup.tgz
+        # don't care when a file changed during read
+        tgz-g5k -f /tmp/backup.tgz || true
 
         # default endlocation
         endlocation=frontend
@@ -458,15 +459,15 @@ EOF
         ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "mkdir -p ~/.local/share/ouigo"
         # Make ssh options available, for e.g. identity file
         scp "${SSH_HOST_CHECK[@]}" "${args[@]}" /tmp/backup.tgz "${OUIGO_G5K_USERNAME}@${endlocation}:~/.local/share/ouigo"
+
         # make the backup the current boot-image
-        # Not sure if we want to do this here as this is not a complete image! We may get into a situation here where we are not able to create an image with the apropriate key inside.
-        # This leads to more edge cases -> removing it for now. New Boot images will be created on persistence checks
-        # ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "cp ~/.local/share/ouigo/backup.tgz ~/.local/share/ouigo/image.tgz"
+        loginfo "Creating new bootimage from backup archive..."
+        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "cp ~/.local/share/ouigo/backup.tgz ~/.local/share/ouigo/image.tgz"
 
         # Replace old image with new one
-        # We'll need a key for that, gonna use my account for the time being
-        # loginfo "Refreshing kaenv3 entry..."
-        # ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "kaenv3 -d ouigo; kaenv3 -a ~/.local/share/ouigo/ouigo.env"
+        loginfo "Refreshing kaenv3 entry..."
+        ssh "${SSH_HOST_CHECK[@]}" "${args[@]}" "${OUIGO_G5K_USERNAME}@${endlocation}" "kaenv3 -d ouigo; kaenv3 -a ~/.local/share/ouigo/ouigo.env"
+
         loginfo "Done."
     }
 
