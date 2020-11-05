@@ -1039,7 +1039,7 @@ recreate_machine() {
             # Otherwise we may have data loss here
             loginfo "Location of node is lille, trying jump host to persist..."
             node_nancy=$(get_node nancy)
-            ssh "${SSH_HOST_CHECK[@]}" -o "root@${node_nancy}"  "root@10.1.8.7" "ouigo-client persist-this-node" || true
+            ssh "${SSH_HOST_CHECK[@]}" -J "root@10.1.8.7" "root@${node_nancy}" "ouigo-client persist-this-node" || true
             ;;
         *)
             logerror "Location ${location} is not recognized"
