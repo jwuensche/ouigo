@@ -1077,7 +1077,7 @@ recreate_machine() {
         ssh "${SSH_HOST_CHECK[@]}" root@"${node}" "ip addr add 10.1.8.7 dev eno2
 ip link set dev eno2 up
 sleep 1
-ip route add 10.1.8.0/24 dev eno2"
+ip route add 10.1.8.0/24 dev eno2" || true
         network_machine "${node}" "" 1294
     fi
     loginfo "New Machine running!"
