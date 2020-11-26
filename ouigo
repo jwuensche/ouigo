@@ -739,16 +739,16 @@ network_machine() {
 
     if [[ -n "$2" ]]
     then
-        add_req="{\"nodes\":[\"${machine}-$2.${location}.grid5000.fr\"]}"
+        add_req="[\"${machine}-$2.${location}.grid5000.fr\"]"
     else
-        add_req="{\"nodes\":[\"${machine}.${location}.grid5000.fr\"]}"
+        add_req="[\"${machine}.${location}.grid5000.fr\"]"
     fi
 
     loginfo "Request node: ${add_req}"
-    loginfo "URL: https://api.grid5000.fr/stable/sites/${location}/vlans/${kavlan_id}"
+    loginfo "URL: https://api.grid5000.fr/stable/sites/${location}/vlans/${kavlan_id}/nodes"
     loginfo "Connecting to kavlan id: ${kavlan_id}"
 
-    curl -s -d "${add_req}" -X POST "https://api.grid5000.fr/stable/sites/${location}/vlans/${kavlan_id}" > /dev/null
+    curl -s -d "${add_req}" -X POST -H 'Content-Type: application/json' "https://api.grid5000.fr/stable/sites/${location}/vlans/${kavlan_id}/nodes" > /dev/null
 }
 
 get_node() {
@@ -1009,15 +1009,15 @@ remove_network() {
 
     if [[ -n "$2" ]]
     then
-        add_req="{\"nodes\":[\"${machine}-$2.${location}.grid5000.fr\"]}"
+        add_req="{[\"${machine}-$2.${location}.grid5000.fr\"]"
     else
-        add_req="{\"nodes\":[\"${machine}.${location}.grid5000.fr\"]}"
+        add_req="{[\"${machine}.${location}.grid5000.fr\"]"
     fi
 
     loginfo "Request node: ${add_req}"
-    loginfo "URL: https://api.grid5000.fr/stable/sites/${location}/vlans/DEFAULT"
+    loginfo "URL: https://api.grid5000.fr/stable/sites/${location}/vlans/DEFAULT/nodes"
 
-    curl -s -d "${add_req}" -X POST "https://api.grid5000.fr/stable/sites/${location}/vlans/DEFAULT" > /dev/null
+    curl -s -d "${add_req}" -X POST -H 'Content-Type: application/json' "https://api.grid5000.fr/stable/sites/${location}/vlans/DEFAULT/nodes" > /dev/null
 }
 
 recreate_machine() {
