@@ -926,37 +926,60 @@ extend_job() {
 
     loginfo "Prolonging reservation of $1 in $2"
 
+    already_granted=$(curl -i -X GET https://api.grid5000.fr/stable/sites/nancy/internal/oarapi/jobs/2805171/details.json -H'Content-Type: application/json')
+
     res=$(curl -s -X POST "https://api.grid5000.fr/stable/sites/$2/internal/oarapi/jobs/$1.json" -H 'Content-Type: application/json' -d "${req}")
 
     acc=$(echo "${res}" | jq '.status' | xargs)
     if [[ "${acc}" != "Accepted" ]]
     then
-        logwarn "Could not extend reservation of job $1"
-        logwarn "$(echo "${res}" | jq '.cmd_output')"
-        loginfo "Reserving new job..."
-
-        cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "No machines have been setup yet"
-        # use find here since glob extension does not resolve to the desired file
-        job_file=$(find . -name "*${1}*")
-
-        if ! stat "${job_file}" > /dev/null 2>&1
-        then
-            logerror "Job $1 in $2 is alreading being reacquistioned, aborting..."
-        fi
-
-        if [[ "$(echo "${job_file}" | grep -c node)" == 1 ]]
-        then
-            loginfo "Recreating machine"
-            name="$(head -n 1 < "${job_file}")"
-            recreate_machine "${job_file}"
-            get_cron
-        else
-            loginfo "Recreating vlan"
-            recreate_vlan "${job_file}"
-            get_cron
-        fi
+        start_recreation "$1"
     else
-        loginfo "Reservation for $1 in $2 successful"
+        loginfo "Checking pending reservation..."
+        for foo in $(seq 1 6)
+        do
+            current_granted=$(curl -i -X GET https://api.grid5000.fr/stable/sites/nancy/internal/oarapi/jobs/2805171/details.json -H'Content-Type: application/json' | jq '.["walltime-change"]')
+            if [[ "${current_granted}" != "{$already_granted}" ]]
+            then
+                break
+            fi
+            sleep 5
+        done
+
+        if [[ "${current_granted}" == "${already_granted}" ]]
+        then
+            loginfo "Extension not granted. Recreating job..."
+            start_recreation "$1"
+        else
+            loginfo "Extension granted. Continuing..."
+        fi
+    fi
+}
+
+start_recreation() {
+    # 1 - job id
+    logwarn "Could not extend reservation of job $1"
+    loginfo "Reserving new job..."
+
+    cd "${CACHE_DIR}" > /dev/null 2>&1 || logerror "No machines have been setup yet"
+    # use find here since glob extension does not resolve to the desired file
+    job_file=$(find . -name "*${1}*")
+
+    if ! stat "${job_file}" > /dev/null 2>&1
+    then
+        logerror "Job $1 in $2 is alreading being reacquistioned, aborting..."
+    fi
+
+    if [[ "$(echo "${job_file}" | grep -c node)" == 1 ]]
+    then
+        loginfo "Recreating machine"
+        name="$(head -n 1 < "${job_file}")"
+        recreate_machine "${job_file}"
+        get_cron
+    else
+        loginfo "Recreating vlan"
+        recreate_vlan "${job_file}"
+        get_cron
     fi
 }
 
