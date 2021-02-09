@@ -926,7 +926,7 @@ extend_job() {
 
     loginfo "Prolonging reservation of $1 in $2"
 
-    already_granted=$(curl -i -X GET https://api.grid5000.fr/stable/sites/nancy/internal/oarapi/jobs/2805171/details.json -H'Content-Type: application/json')
+    already_granted=$(curl -s -X GET "https://api.grid5000.fr/stable/sites/$2/internal/oarapi/jobs/$1/details.json" -H'Content-Type: application/json' | jq '.["walltime-change"].granted')
 
     res=$(curl -s -X POST "https://api.grid5000.fr/stable/sites/$2/internal/oarapi/jobs/$1.json" -H 'Content-Type: application/json' -d "${req}")
 
@@ -938,7 +938,7 @@ extend_job() {
         loginfo "Checking pending reservation..."
         for foo in $(seq 1 6)
         do
-            current_granted=$(curl -i -X GET https://api.grid5000.fr/stable/sites/nancy/internal/oarapi/jobs/2805171/details.json -H'Content-Type: application/json' | jq '.["walltime-change"]')
+            current_granted=$(curl -s -X GET "https://api.grid5000.fr/stable/sites/$2/internal/oarapi/jobs/$1/details.json" -H'Content-Type: application/json' | jq '.["walltime-change"].granted')
             if [[ "${current_granted}" != "{$already_granted}" ]]
             then
                 break
